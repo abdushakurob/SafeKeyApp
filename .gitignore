@@ -1,3 +1,4 @@
-build/*
-.trace
-.coverage*
+Safekey_SC/build/*
+Safekey_SC/.trace
+Safekey_SC/.coverage*
+Safekey_SC/safekey

@@ -1,0 +1,171 @@
+.popup-container {
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+  padding: 20px;
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  color: white;
+  min-height: 280px;
+  border-radius: 8px;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+  width: 380px;
+}
+
+.popup-container h1 {
+  margin: 0 0 16px 0;
+  font-size: 28px;
+  font-weight: 700;
+  text-align: center;
+}
+
+.popup-container p {
+  margin: 8px 0;
+  font-size: 14px;
+  opacity: 0.95;
+}
+
+.popup-container p.status {
+  background: rgba(0, 0, 0, 0.2);
+  padding: 10px;
+  border-radius: 4px;
+  font-weight: 500;
+  margin: 12px 0;
+}
+
+.popup-container p.demo-text {
+  text-align: center;
+  font-size: 13px;
+  margin-top: 16px;
+  padding: 10px;
+  background: rgba(255, 255, 255, 0.1);
+  border-radius: 4px;
+}
+
+.button-group {
+  display: flex;
+  gap: 10px;
+  margin: 16px 0;
+}
+
+.button-group button {
+  flex: 1;
+  padding: 12px 16px;
+  border: none;
+  border-radius: 6px;
+  background: rgba(255, 255, 255, 0.25);
+  color: white;
+  font-weight: 600;
+  font-size: 14px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+}
+
+.button-group button:hover {
+  background: rgba(255, 255, 255, 0.35);
+  transform: translateY(-2px);
+  box-shadow: 0 4px 8px rgba(0, 0, 0, 0.15);
+}
+
+.button-group button:active {
+  transform: translateY(0);
+}
+
+/* Section styling */
+.section {
+  background: rgba(0, 0, 0, 0.15);
+  padding: 14px;
+  border-radius: 6px;
+  margin: 12px 0;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.section h2 {
+  margin: 0 0 10px 0;
+  font-size: 16px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  opacity: 0.9;
+}
+
+/* zkLogin Active State */
+.zklogin-active {
+  background: rgba(76, 175, 80, 0.2);
+  padding: 12px;
+  border-radius: 4px;
+  border: 1px solid rgba(76, 175, 80, 0.4);
+}
+
+.zklogin-active p {
+  margin: 6px 0;
+}
+
+.zklogin-active p.address,
+.zklogin-active p.provider {
+  font-family: 'Monaco', 'Courier New', monospace;
+  font-size: 12px;
+  background: rgba(0, 0, 0, 0.2);
+  padding: 6px;
+  border-radius: 3px;
+  word-break: break-all;
+}
+
+.logout-btn {
+  width: 100%;
+  padding: 10px;
+  margin-top: 8px;
+  background: rgba(255, 76, 76, 0.3);
+  border: 1px solid rgba(255, 76, 76, 0.5);
+  color: white;
+  border-radius: 4px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.logout-btn:hover:not(:disabled) {
+  background: rgba(255, 76, 76, 0.4);
+}
+
+.logout-btn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+/* zkLogin Inactive State */
+.zklogin-inactive {
+  text-align: center;
+}
+
+.zklogin-inactive p {
+  margin: 8px 0;
+  font-size: 13px;
+}
+
+.oauth-buttons {
+  display: flex;
+  gap: 8px;
+  margin-top: 10px;
+}
+
+.oauth-btn {
+  flex: 1;
+  padding: 10px;
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  border-radius: 4px;
+  background: rgba(255, 255, 255, 0.15);
+  color: white;
+  font-weight: 600;
+  font-size: 12px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.oauth-btn:hover:not(:disabled) {
+  background: rgba(255, 255, 255, 0.25);
+  border-color: rgba(255, 255, 255, 0.35);
+}
+
+.oauth-btn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}

@@ -6,17 +6,30 @@
   "scripts": {
     "dev": "vite",
     "build": "tsc -b && vite build",
+    "build:extension": "tsc -b && vite build --mode extension",
+    "build:chrome": "npm run build:extension",
+    "build:firefox": "npm run build:extension",
+    "dev:extension": "vite --mode extension",
     "lint": "eslint .",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "server": "node server.js"
   },
   "dependencies": {
+    "@mysten/enoki": "^0.12.10",
+    "@mysten/seal": "^0.9.3",
+    "@mysten/sui.js": "^0.54.1",
+    "fs": "^0.0.1-security",
+    "js-sha256": "^0.11.1",
+    "path": "^0.12.7",
     "react": "^19.1.1",
-    "react-dom": "^19.1.1"
+    "react-dom": "^19.1.1",
+    "tweetnacl": "^1.0.3",
+    "url": "^0.11.4"
   },
   "devDependencies": {
     "@eslint/js": "^9.36.0",
     "@types/chrome": "^0.1.27",
-    "@types/node": "^24.6.0",
+    "@types/node": "^24.10.0",
     "@types/react": "^19.1.16",
     "@types/react-dom": "^19.1.9",
     "@vitejs/plugin-react": "^5.0.4",

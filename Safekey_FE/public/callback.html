@@ -1,0 +1,227 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>SafeKey - OAuth Callback</title>
+    <style>
+      body {
+        font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+        display: flex;
+        justify-content: center;
+        align-items: center;
+        height: 100vh;
+        margin: 0;
+        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+      }
+      .container {
+        text-align: center;
+        color: white;
+        max-width: 500px;
+        padding: 20px;
+      }
+      h1 {
+        margin: 0 0 20px 0;
+      }
+      p {
+        font-size: 16px;
+        margin: 10px 0;
+      }
+      .success {
+        color: #76ff03;
+        background: rgba(118, 255, 3, 0.1);
+        padding: 15px;
+        border-radius: 4px;
+        margin: 15px 0;
+      }
+      .error {
+        color: #ff6b6b;
+        background: rgba(255, 0, 0, 0.1);
+        padding: 15px;
+        border-radius: 4px;
+        margin: 15px 0;
+      }
+      .info {
+        font-size: 12px;
+        background: rgba(0, 0, 0, 0.2);
+        padding: 10px;
+        border-radius: 4px;
+        margin-top: 20px;
+        max-height: 200px;
+        overflow-y: auto;
+        font-family: monospace;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="container">
+      <h1>🔐 SafeKey</h1>
+      <p id="status">Processing OAuth callback...</p>
+      <p id="message">Authenticating with your account...</p>
+      <div class="info" id="debug"></div>
+    </div>
+    <script>
+      // Store OAuth data globally for debugging
+      window.oauthData = {
+        hash: window.location.hash,
+        search: window.location.search,
+        href: window.location.href,
+      }
+
+      const DEBUG_LOG = []
+
+      function log(msg) {
+        console.log('[Callback]', msg)
+        DEBUG_LOG.push(msg)
+        document.getElementById('debug').textContent = DEBUG_LOG.join('\n')
+      }
+
+      log('Page loaded')
+      log('Hash: ' + window.location.hash.substring(0, 100))
+      log('Search: ' + window.location.search.substring(0, 100))
+
+      // Extract OAuth data
+      const hash = window.location.hash.substring(1)
+      const search = window.location.search.substring(1)
+      const allData = hash || search
+
+      if (!allData) {
+        log('ERROR: No OAuth data in URL')
+        document.getElementById('status').textContent = '❌ No OAuth data received'
+        document.getElementById('message').innerHTML =
+          '<div class="error">No authorization data found in callback URL</div>'
+        document.getElementById('debug').style.display = 'block'
+        throw new Error('No OAuth data in callback')
+      }
+
+      // Parse the JWT token from hash
+      const tokenMatch = allData.match(/id_token=([^&]+)/)
+      const idToken = tokenMatch ? tokenMatch[1] : null
+
+      if (!idToken) {
+        log('ERROR: No id_token in OAuth response')
+        log('Raw data: ' + allData.substring(0, 200))
+      } else {
+        log('✅ id_token found, length: ' + idToken.length)
+      }
+
+      // Try multiple ways to communicate back to extension
+      async function notifyExtension() {
+        const payload = {
+          type: 'COMPLETE_ZKLOGIN',
+          hash: '#' + hash,
+          search: '?' + search,
+          allData: allData,
+          idToken: idToken,
+        }
+
+        log('Attempting extension communication...')
+        log('Payload type: ' + payload.type)
+        log('Token length: ' + (idToken ? idToken.length : 'N/A'))
+
+        // Method 1: Try chrome.runtime.sendMessage (works on both Chrome/Firefox)
+        if (typeof chrome !== 'undefined' && chrome.runtime) {
+          try {
+            log('Method 1: Using chrome.runtime.sendMessage')
+            chrome.runtime.sendMessage(payload, (response) => {
+              log('Response received: ' + JSON.stringify(response))
+              if (response && response.success) {
+                document.getElementById('status').textContent = '✅ Login successful!'
+                document.getElementById('message').innerHTML =
+                  '<div class="success">Your SafeKey account has been authenticated.</div>' +
+                  '<p>You can close this window now.</p>'
+                setTimeout(() => {
+                  try {
+                    window.close()
+                  } catch (e) {
+                    log('Could not auto-close: ' + e.message)
+                  }
+                }, 2000)
+              } else {
+                const error = response?.error || 'Unknown error'
+                document.getElementById('status').textContent = '⚠️ Communication received but login failed'
+                document.getElementById('message').innerHTML =
+                  '<div class="error">Error: ' + error + '</div>' +
+                  '<p>Check the SafeKey extension for details.</p>'
+                log('Login failed: ' + error)
+              }
+            })
+          } catch (error) {
+            log('Method 1 failed: ' + error.message)
+            notifyViaStorage()
+          }
+        } else {
+          log('chrome.runtime not available, trying alternative method')
+          notifyViaStorage()
+        }
+      }
+
+      // Method 2: Use postMessage to content script
+      function notifyViaStorage() {
+        try {
+          log('Method 2: Attempting postMessage to content script...')
+          
+          // Setup response listener BEFORE sending the message
+          window.addEventListener('message', (event) => {
+            // Only process RESPONSE messages, not CALLBACK messages
+            if (event.data && event.data.type === 'SAFEKEY_OAUTH_RESPONSE') {
+              log('🔄 Response from content script: ' + JSON.stringify(event.data))
+              
+              if (event.data.success) {
+                log('✅ OAuth processed successfully')
+                document.getElementById('status').textContent = '✅ Login successful!'
+                document.getElementById('message').innerHTML =
+                  '<div class="success">Your SafeKey account has been authenticated.</div>' +
+                  '<p>Logged in as: ' + (event.data.address ? event.data.address.substring(0, 20) + '...' : 'User') + '</p>' +
+                  '<p>You can close this window now.</p>'
+              } else {
+                log('❌ OAuth processing failed: ' + (event.data.error || 'Unknown error'))
+                document.getElementById('status').textContent = '❌ Login failed'
+                document.getElementById('message').innerHTML =
+                  '<div class="error">Error: ' + (event.data.error || 'Unknown error') + '</div>' +
+                  '<p>Please try again in the extension.</p>'
+              }
+              
+              setTimeout(() => {
+                try {
+                  window.close()
+                } catch (e) {
+                  log('Could not auto-close window')
+                }
+              }, 1500)
+            }
+          })
+          
+          document.getElementById('status').textContent = '✅ Authenticating...'
+          document.getElementById('message').innerHTML =
+            '<div class="success">Processing your authentication...</div>' +
+            '<p>Please wait...</p>'
+          
+          // Delay sending the message to give content script time to set up listener
+          setTimeout(() => {
+            const oauthData = {
+              type: 'SAFEKEY_OAUTH_CALLBACK',
+              hash: '#' + hash,
+              search: '?' + search,
+              idToken: idToken,
+            }
+            
+            log('📤 Sending postMessage with OAuth data to content script (after delay)')
+            window.postMessage(oauthData, window.location.origin)
+            log('✅ Sent postMessage with OAuth data to content script')
+          }, 500)
+        } catch (error) {
+          log('Method 2 exception: ' + error.message)
+          document.getElementById('status').textContent = '⚠️ Error'
+          document.getElementById('message').innerHTML =
+            '<div class="error">Error: ' + error.message + '</div>'
+        }
+      }
+
+      // Start communication
+      notifyExtension()
+
+      log('Callback initialized')
+    </script>
+  </body>
+</html>

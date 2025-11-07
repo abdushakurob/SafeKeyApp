@@ -2,6 +2,7 @@ import React from 'react'
 import ReactDOM from 'react-dom/client'
 import './popup.css'
 import { initializeEnokiFlow, processOAuthJWT, loadZkLoginSessionFromStorage, saveZkLoginSessionSecurely, getZkLoginSession, prepareZkLoginSession } from '../lib/zklogin'
+import { testSealSessionKey } from '../lib/seal'
 
 interface StatusResponse {
   status: string
@@ -20,6 +21,8 @@ function Popup(): React.ReactElement {
   const [zkLoginStatus, setZkLoginStatus] = React.useState<ZkLoginStatus>({ success: false, isActive: false })
   const [loading, setLoading] = React.useState(false)
   const [showSessionDetails, setShowSessionDetails] = React.useState(false)
+  const [testResult, setTestResult] = React.useState<string | null>(null)
+  const [testing, setTesting] = React.useState(false)
 
   React.useEffect(() => {
     // Initialize Enoki in popup context
@@ -432,6 +435,29 @@ function Popup(): React.ReactElement {
     }
   }
 
+  const handleTestSeal = async () => {
+    setTesting(true)
+    setTestResult(null)
+    try {
+      const result = await testSealSessionKey()
+      if (result.success) {
+        setTestResult('✅ Test passed! Check console for details.')
+        console.log('[Popup] SEAL test result:', result)
+      } else {
+        setTestResult(`❌ Test failed: ${result.error || 'Unknown error'}`)
+        console.error('[Popup] SEAL test failed:', result)
+      }
+    } catch (error) {
+      const errorMsg = error instanceof Error ? error.message : String(error)
+      setTestResult(`❌ Test error: ${errorMsg}`)
+      console.error('[Popup] SEAL test error:', error)
+    } finally {
+      setTesting(false)
+    }
+  }
+
+
+
   const getStatusText = () => {
     return status === 'Active' ? 'Active' : 'Locked'
   }
@@ -544,6 +570,40 @@ function Popup(): React.ReactElement {
                 </svg>
                 View Session Details (Console)
               </button>
+              <button 
+                onClick={handleTestSeal}
+                disabled={testing || loading}
+                className="btn btn-secondary"
+                style={{ width: '100%', marginTop: '8px', fontSize: '12px', padding: '8px' }}
+              >
+                {testing ? (
+                  <>
+                    <span className="loading"></span>
+                    Testing SEAL...
+                  </>
+                ) : (
+                  <>
+                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                      <polyline points="22 12 18 12 15 21 9 3 6 12 2 12"></polyline>
+                    </svg>
+                    Test SEAL SessionKey
+                  </>
+                )}
+              </button>
+              {testResult && (
+                <div style={{
+                  marginTop: '8px',
+                  padding: '8px',
+                  borderRadius: '6px',
+                  fontSize: '11px',
+                  backgroundColor: testResult.includes('✅') ? '#ecfdf5' : '#fee2e2',
+                  color: testResult.includes('✅') ? '#065f46' : '#991b1b',
+                  border: `1px solid ${testResult.includes('✅') ? '#10b981' : '#fecaca'}`,
+                }}>
+                  {testResult}
+                </div>
+              )}
+              
             <button onClick={handleLogout} disabled={loading} className="logout-btn">
                 {loading ? (
                   <>

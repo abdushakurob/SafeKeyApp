@@ -47,16 +47,10 @@ function base64Decode(str: string): Uint8Array {
  * @param sessionNonce - Session nonce (base64-encoded)
  * @returns Promise<string> - Session key (base64-encoded)
  */
-export async function deriveKS(
-  KM: string,
-  sessionNonce: string
-): Promise<string> {
+export async function deriveKS(KM: string, sessionNonce: string): Promise<string> {
   try {
-    // Decode inputs
     const kmBytes = base64Decode(KM)
     const nonceBytes = base64Decode(sessionNonce)
-
-    // Import KM as a key
     const kmKey = await crypto.subtle.importKey(
       'raw',
       kmBytes as any,
@@ -64,9 +58,6 @@ export async function deriveKS(
       false,
       ['deriveBits', 'deriveKey']
     )
-
-    // HKDF-Expand with SHA-256
-    // salt: empty, info: sessionNonce, length: 32 bytes (256 bits)
     const derivedBits = await crypto.subtle.deriveBits(
       {
         name: 'HKDF',
@@ -75,9 +66,8 @@ export async function deriveKS(
         info: nonceBytes as any,
       },
       kmKey,
-      256 // 32 bytes
+      256
     )
-
     const derivedBytes = new Uint8Array(derivedBits)
     return base64Encode(derivedBytes)
   } catch (error) {
@@ -94,10 +84,7 @@ export async function deriveKS(
  */
 export async function encrypt(data: string, key: string): Promise<string> {
   try {
-    // Decode key
     const keyBytes = base64Decode(key)
-
-    // Import key for encryption
     const cryptoKey = await crypto.subtle.importKey(
       'raw',
       keyBytes as any,
@@ -105,31 +92,17 @@ export async function encrypt(data: string, key: string): Promise<string> {
       false,
       ['encrypt']
     )
-
-    // Generate IV (initialization vector) - 12 bytes for GCM
     const iv = new Uint8Array(12)
     crypto.getRandomValues(iv)
-
-    // Convert data to bytes
     const dataBytes = new TextEncoder().encode(data)
-
-    // Encrypt
     const encryptedData = await crypto.subtle.encrypt(
-      {
-        name: 'AES-GCM',
-        iv: iv as any,
-      },
+      { name: 'AES-GCM', iv: iv as any },
       cryptoKey,
       dataBytes as any
     )
-
-    // encryptedData includes the ciphertext and auth tag (last 16 bytes)
     const encryptedBytes = new Uint8Array(encryptedData)
-
-    // Format: base64(IV).base64(ciphertext.tag)
     const encryptedB64 = base64Encode(encryptedBytes)
     const ivB64 = base64Encode(iv)
-
     return `${ivB64}.${encryptedB64}`
   } catch (error) {
     console.error('Error encrypting data:', error)
@@ -145,21 +118,13 @@ export async function encrypt(data: string, key: string): Promise<string> {
  */
 export async function decrypt(encryptedData: string, key: string): Promise<string> {
   try {
-    // Parse the encrypted data format: iv.ciphertext
     const parts = encryptedData.split('.')
-    if (parts.length !== 2) {
-      throw new Error('Invalid encrypted data format. Expected "iv.ciphertext"')
-    }
-
+    if (parts.length !== 2) throw new Error('Invalid encrypted data format. Expected "iv.ciphertext"')
     const ivB64 = parts[0]
     const ciphertextB64 = parts[1]
-
-    // Decode
     const iv = base64Decode(ivB64)
     const ciphertextBytes = base64Decode(ciphertextB64)
     const keyBytes = base64Decode(key)
-
-    // Import key for decryption
     const cryptoKey = await crypto.subtle.importKey(
       'raw',
       keyBytes as any,
@@ -167,18 +132,11 @@ export async function decrypt(encryptedData: string, key: string): Promise<strin
       false,
       ['decrypt']
     )
-
-    // Decrypt
     const decryptedData = await crypto.subtle.decrypt(
-      {
-        name: 'AES-GCM',
-        iv: iv as any,
-      },
+      { name: 'AES-GCM', iv: iv as any },
       cryptoKey,
       ciphertextBytes as any
     )
-
-    // Convert back to string
     return new TextDecoder().decode(decryptedData)
   } catch (error) {
     console.error('Error decrypting data:', error)
@@ -195,10 +153,7 @@ export async function decrypt(encryptedData: string, key: string): Promise<strin
  */
 export async function hashDomain(domain: string, KM: string): Promise<string> {
   try {
-    // Decode master key
     const kmBytes = base64Decode(KM)
-
-    // Import key for HMAC
     const key = await crypto.subtle.importKey(
       'raw',
       kmBytes as any,
@@ -206,14 +161,9 @@ export async function hashDomain(domain: string, KM: string): Promise<string> {
       false,
       ['sign']
     )
-
-    // Convert domain to bytes
     const domainBytes = new TextEncoder().encode(domain)
-
-    // Compute HMAC-SHA256
     const hashBuffer = await crypto.subtle.sign('HMAC', key, domainBytes as any)
     const hashBytes = new Uint8Array(hashBuffer)
-
     return base64Encode(hashBytes)
   } catch (error) {
     console.error('Error hashing domain:', error)
@@ -241,17 +191,11 @@ export function generateRandomKey(length: number = 32): string {
  * @param length - Derived key length in bytes (default: 32)
  * @returns Promise<string> - Derived key (base64-encoded)
  */
-export async function deriveKey(
-  KM: string,
-  info: string,
-  salt?: string,
-  length: number = 32
-): Promise<string> {
+export async function deriveKey(KM: string, info: string, salt?: string, length: number = 32): Promise<string> {
   try {
     const kmBytes = base64Decode(KM)
     const infoBytes = new TextEncoder().encode(info)
     const saltBytes = salt ? base64Decode(salt) : new Uint8Array(0)
-
     const kmKey = await crypto.subtle.importKey(
       'raw',
       kmBytes as any,
@@ -259,18 +203,11 @@ export async function deriveKey(
       false,
       ['deriveBits']
     )
-
     const derivedBits = await crypto.subtle.deriveBits(
-      {
-        name: 'HKDF',
-        hash: 'SHA-256',
-        salt: saltBytes as any,
-        info: infoBytes as any,
-      },
+      { name: 'HKDF', hash: 'SHA-256', salt: saltBytes as any, info: infoBytes as any },
       kmKey,
-      length * 8 // convert bytes to bits
+      length * 8
     )
-
     const derivedBytes = new Uint8Array(derivedBits)
     return base64Encode(derivedBytes)
   } catch (error) {

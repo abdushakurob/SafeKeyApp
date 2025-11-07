@@ -12,6 +12,7 @@ import {
   loadZkLoginSessionFromStorage,
   processOAuthJWT,
 } from '../lib/zklogin'
+import { initializeSeal } from '../lib/seal'
 
 // In-memory state for the session
 let sessionState: {
@@ -315,6 +316,15 @@ chrome.runtime.onInstalled.addListener(() => {
     initializeEnokiFlow(enokiApiKey, providers || undefined)
     sessionState.enokiInitialized = true
     
+    // Initialize SEAL (Walrus removed from this build)
+    try {
+      const network = 'testnet' // TODO: Make this configurable
+      initializeSeal(network)
+      console.log('[BG] ✅ SEAL initialized')
+    } catch (error) {
+      console.error('[BG] Failed to initialize SEAL:', error)
+    }
+    
     // Load existing zkLogin session from storage
     try {
       await loadZkLoginSessionFromStorage()
@@ -325,8 +335,3 @@ chrome.runtime.onInstalled.addListener(() => {
     console.error('[BG] Failed to initialize Enoki:', error)
   }
 })()
-
-// Note: OAuth callback is now handled via OAUTH_CALLBACK message from content script
-// This old storage listener is kept for backward compatibility but shouldn't be used
-// The content script stores tokens in chrome.storage.session, not chrome.storage.local
-

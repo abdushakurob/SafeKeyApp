@@ -1,0 +1,48 @@
+{
+  "name": "safekey_fe",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc -b && vite build",
+    "build:extension": "tsc -b && vite build --mode extension",
+    "build:chrome": "npm run build:extension",
+    "build:firefox": "npm run build:extension",
+    "dev:extension": "vite --mode extension",
+    "lint": "eslint .",
+    "preview": "vite preview",
+    "server": "node server.js"
+  },
+  "dependencies": {
+    "@mysten/dapp-kit": "^0.19.8",
+    "@mysten/enoki": "^0.12.10",
+    "@mysten/seal": "^0.9.3",
+    "@mysten/sui.js": "^0.54.1",
+    "@mysten/wallet-standard": "^0.19.6",
+    "fs": "^0.0.1-security",
+    "js-sha256": "^0.11.1",
+    "path": "^0.12.7",
+    "react": "^19.1.1",
+    "react-dom": "^19.1.1",
+    "tweetnacl": "^1.0.3",
+    "url": "^0.11.4"
+  },
+  "devDependencies": {
+    "@eslint/js": "^9.36.0",
+    "@types/chrome": "^0.1.27",
+    "@types/node": "^24.10.0",
+    "@types/react": "^19.1.16",
+    "@types/react-dom": "^19.1.9",
+    "@vitejs/plugin-react": "^5.0.4",
+    "copy-webpack-plugin": "^13.0.1",
+    "eslint": "^9.36.0",
+    "eslint-plugin-react-hooks": "^5.2.0",
+    "eslint-plugin-react-refresh": "^0.4.22",
+    "globals": "^16.4.0",
+    "typescript": "~5.9.3",
+    "typescript-eslint": "^8.45.0",
+    "vite": "^7.1.7",
+    "webextension-polyfill": "^0.12.0"
+  }
+}

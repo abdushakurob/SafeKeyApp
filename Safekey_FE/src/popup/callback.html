@@ -1,0 +1,99 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>SafeKey - OAuth Callback</title>
+    <style>
+      body {
+        font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+        display: flex;
+        justify-content: center;
+        align-items: center;
+        height: 100vh;
+        margin: 0;
+        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+      }
+      .container {
+        text-align: center;
+        color: white;
+        max-width: 500px;
+        padding: 20px;
+      }
+      h1 {
+        margin: 0 0 20px 0;
+      }
+      p {
+        font-size: 16px;
+        margin: 10px 0;
+      }
+      .error {
+        color: #ff6b6b;
+        background: rgba(255, 0, 0, 0.1);
+        padding: 15px;
+        border-radius: 4px;
+        margin: 15px 0;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="container">
+      <h1>🔐 SafeKey</h1>
+      <p id="status">Processing login...</p>
+      <p id="message">You can close this window.</p>
+    </div>
+    <script>
+      // Extract hash from URL and send to background worker
+      const hash = window.location.hash
+      const search = window.location.search
+      console.log('[Callback] Hash:', hash, 'Search:', search)
+
+      // Update status
+      document.getElementById('status').textContent = 'Authenticating...'
+
+      if (hash || search) {
+        try {
+          // Send the hash/search to the background worker to complete zkLogin
+          chrome.runtime.sendMessage(
+            {
+              type: 'COMPLETE_ZKLOGIN',
+              hash: hash || search,
+            },
+            (response) => {
+              console.log('[Callback] Response:', response)
+              if (response && response.success) {
+                document.getElementById('status').textContent = '✅ Login successful!'
+                document.getElementById('message').textContent = 'You can close this window now.'
+                console.log('[Callback] User address:', response.address)
+                setTimeout(() => {
+                  // For Firefox, try to close the window
+                  try {
+                    window.close()
+                  } catch (e) {
+                    console.log('[Callback] Could not close window:', e)
+                  }
+                }, 2000)
+              } else {
+                const error = response?.error || 'Unknown error'
+                document.getElementById('status').textContent = '❌ Login failed'
+                document.getElementById('message').innerHTML = 
+                  '<div class="error">Error: ' + error + '</div><p>Please try again.</p>'
+                console.error('[Callback] Login failed:', error)
+              }
+            },
+          )
+        } catch (error) {
+          console.error('[Callback] Exception:', error)
+          document.getElementById('status').textContent = '❌ Error'
+          document.getElementById('message').innerHTML = 
+            '<div class="error">Error: ' + String(error) + '</div>'
+        }
+      } else {
+        document.getElementById('status').textContent = '❌ No authorization code'
+        document.getElementById('message').innerHTML = 
+          '<div class="error">No authorization code received from OAuth provider</div>'
+        console.error('[Callback] No hash or search params found')
+      }
+    </script>
+  </body>
+</html>

@@ -5,80 +5,204 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>SafeKey - OAuth Callback</title>
     <style>
+      * {
+        margin: 0;
+        padding: 0;
+        box-sizing: border-box;
+      }
+
       body {
-        font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+        font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
         display: flex;
         justify-content: center;
         align-items: center;
-        height: 100vh;
-        margin: 0;
-        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-      }
-      .container {
-        text-align: center;
-        color: white;
-        max-width: 500px;
+        min-height: 100vh;
+        background: linear-gradient(135deg, #6366f1 0%, #8b5cf6 100%);
         padding: 20px;
       }
+
+      .container {
+        background: white;
+        border-radius: 12px;
+        box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+        max-width: 500px;
+        width: 100%;
+        padding: 40px;
+        text-align: center;
+      }
+
+      .logo {
+        width: 64px;
+        height: 64px;
+        margin: 0 auto 24px;
+        background: linear-gradient(135deg, #6366f1 0%, #8b5cf6 100%);
+        border-radius: 16px;
+        display: flex;
+        align-items: center;
+          justify-content: center;
+        box-shadow: 0 8px 16px rgba(99, 102, 241, 0.3);
+      }
+
+      .logo svg {
+        width: 32px;
+        height: 32px;
+        color: white;
+      }
+
       h1 {
-        margin: 0 0 20px 0;
+        font-size: 24px;
+        font-weight: 700;
+        color: #111827;
+        margin-bottom: 8px;
       }
-      p {
+
+      .subtitle {
+        font-size: 14px;
+        color: #6b7280;
+        margin-bottom: 32px;
+      }
+
+      .status-card {
+        background: #f9fafb;
+        border: 1px solid #e5e7eb;
+        border-radius: 8px;
+        padding: 20px;
+        margin-bottom: 24px;
+      }
+
+      .status-indicator {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        gap: 12px;
+        margin-bottom: 16px;
+      }
+
+      .spinner {
+        width: 24px;
+        height: 24px;
+        border: 3px solid #e5e7eb;
+        border-top-color: #6366f1;
+        border-radius: 50%;
+        animation: spin 0.8s linear infinite;
+      }
+
+      @keyframes spin {
+        to {
+          transform: rotate(360deg);
+        }
+      }
+
+      .status-text {
         font-size: 16px;
-        margin: 10px 0;
+        font-weight: 600;
+        color: #374151;
       }
+
+      .message {
+        font-size: 14px;
+        color: #6b7280;
+        line-height: 1.6;
+      }
+
       .success {
-        color: #76ff03;
-        background: rgba(118, 255, 3, 0.1);
-        padding: 15px;
-        border-radius: 4px;
-        margin: 15px 0;
+        background: #ecfdf5;
+        border-color: #10b981;
+        color: #065f46;
       }
+
+      .success .status-text {
+        color: #065f46;
+      }
+
+      .success .spinner {
+        border-color: #a7f3d0;
+        border-top-color: #10b981;
+      }
+
       .error {
-        color: #ff6b6b;
-        background: rgba(255, 0, 0, 0.1);
-        padding: 15px;
-        border-radius: 4px;
-        margin: 15px 0;
+        background: #fef2f2;
+        border-color: #ef4444;
+        color: #991b1b;
       }
-      .info {
-        font-size: 12px;
-        background: rgba(0, 0, 0, 0.2);
-        padding: 10px;
-        border-radius: 4px;
-        margin-top: 20px;
-        max-height: 200px;
-        overflow-y: auto;
-        font-family: monospace;
+
+      .error .status-text {
+        color: #991b1b;
+      }
+
+      .close-hint {
+        font-size: 13px;
+        color: #9ca3af;
+        margin-top: 16px;
+      }
+
+      .checkmark {
+        width: 24px;
+        height: 24px;
+        border-radius: 50%;
+        background: #10b981;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        color: white;
+        font-weight: bold;
+      }
+
+      .error-icon {
+        width: 24px;
+        height: 24px;
+        border-radius: 50%;
+        background: #ef4444;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        color: white;
+        font-weight: bold;
       }
     </style>
   </head>
   <body>
     <div class="container">
-      <h1>🔐 SafeKey</h1>
-      <p id="status">Processing OAuth callback...</p>
-      <p id="message">Authenticating with your account...</p>
-      <div class="info" id="debug"></div>
+      <div class="logo">
+        <svg fill="none" viewBox="0 0 24 24" stroke="currentColor">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />
+        </svg>
+      </div>
+      <h1>SafeKey</h1>
+      <div class="subtitle">OAuth Authentication</div>
+
+      <div class="status-card" id="statusCard">
+        <div class="status-indicator">
+          <div class="spinner"></div>
+          <span class="status-text" id="status">Processing authentication...</span>
+        </div>
+        <div class="message" id="message">Please wait while we authenticate your account.</div>
+      </div>
+
+      <div class="close-hint" id="closeHint" style="display: none;">You can close this window now.</div>
     </div>
     <script>
-      // Store OAuth data globally for debugging
-      window.oauthData = {
-        hash: window.location.hash,
-        search: window.location.search,
-        href: window.location.href,
+      const statusCard = document.getElementById('statusCard')
+      const statusText = document.getElementById('status')
+      const messageEl = document.getElementById('message')
+      const closeHint = document.getElementById('closeHint')
+
+      function showSuccess(msg) {
+        statusCard.className = 'status-card success'
+        statusCard.querySelector('.status-indicator').innerHTML = `
+          <div class="checkmark">✓</div>
+          <span class="status-text">${msg}</span>
+        `
+        closeHint.style.display = 'block'
       }
 
-      const DEBUG_LOG = []
-
-      function log(msg) {
-        console.log('[Callback]', msg)
-        DEBUG_LOG.push(msg)
-        document.getElementById('debug').textContent = DEBUG_LOG.join('\n')
+      function showError(msg) {
+        statusCard.className = 'status-card error'
+        statusCard.querySelector('.status-indicator').innerHTML = `
+          <div class="error-icon">✕</div>
+          <span class="status-text">${msg}</span>
+        `
       }
-
-      log('Page loaded')
-      log('Hash: ' + window.location.hash.substring(0, 100))
-      log('Search: ' + window.location.search.substring(0, 100))
 
       // Extract OAuth data
       const hash = window.location.hash.substring(1)
@@ -86,11 +210,8 @@
       const allData = hash || search
 
       if (!allData) {
-        log('ERROR: No OAuth data in URL')
-        document.getElementById('status').textContent = '❌ No OAuth data received'
-        document.getElementById('message').innerHTML =
-          '<div class="error">No authorization data found in callback URL</div>'
-        document.getElementById('debug').style.display = 'block'
+        showError('Authentication Failed')
+        messageEl.innerHTML = '<div>No authorization data found in callback URL</div>'
         throw new Error('No OAuth data in callback')
       }
 
@@ -99,104 +220,74 @@
       const idToken = tokenMatch ? tokenMatch[1] : null
 
       if (!idToken) {
-        log('ERROR: No id_token in OAuth response')
-        log('Raw data: ' + allData.substring(0, 200))
-      } else {
-        log('✅ id_token found, length: ' + idToken.length)
+        showError('Authentication Failed')
+        messageEl.innerHTML = '<div>No ID token found in OAuth response</div>'
       }
 
-      // Try multiple ways to communicate back to extension
-      async function notifyExtension() {
-        const payload = {
-          type: 'COMPLETE_ZKLOGIN',
-          hash: '#' + hash,
-          search: '?' + search,
-          allData: allData,
-          idToken: idToken,
-        }
-
-        log('Attempting extension communication...')
-        log('Payload type: ' + payload.type)
-        log('Token length: ' + (idToken ? idToken.length : 'N/A'))
-
-        // Method 1: Try chrome.runtime.sendMessage (works on both Chrome/Firefox)
-        if (typeof chrome !== 'undefined' && chrome.runtime) {
-          try {
-            log('Method 1: Using chrome.runtime.sendMessage')
-            chrome.runtime.sendMessage(payload, (response) => {
-              log('Response received: ' + JSON.stringify(response))
-              if (response && response.success) {
-                document.getElementById('status').textContent = '✅ Login successful!'
-                document.getElementById('message').innerHTML =
-                  '<div class="success">Your SafeKey account has been authenticated.</div>' +
-                  '<p>You can close this window now.</p>'
-                setTimeout(() => {
-                  try {
-                    window.close()
-                  } catch (e) {
-                    log('Could not auto-close: ' + e.message)
-                  }
-                }, 2000)
-              } else {
-                const error = response?.error || 'Unknown error'
-                document.getElementById('status').textContent = '⚠️ Communication received but login failed'
-                document.getElementById('message').innerHTML =
-                  '<div class="error">Error: ' + error + '</div>' +
-                  '<p>Check the SafeKey extension for details.</p>'
-                log('Login failed: ' + error)
-              }
-            })
-          } catch (error) {
-            log('Method 1 failed: ' + error.message)
-            notifyViaStorage()
-          }
-        } else {
-          log('chrome.runtime not available, trying alternative method')
-          notifyViaStorage()
-        }
-      }
-
-      // Method 2: Use postMessage to content script
+      // Use postMessage to content script (content script handles storage)
       function notifyViaStorage() {
         try {
-          log('Method 2: Attempting postMessage to content script...')
+          let responseReceived = false
+          let timeoutId = null
           
           // Setup response listener BEFORE sending the message
-          window.addEventListener('message', (event) => {
+          const messageListener = (event) => {
             // Only process RESPONSE messages, not CALLBACK messages
             if (event.data && event.data.type === 'SAFEKEY_OAUTH_RESPONSE') {
-              log('🔄 Response from content script: ' + JSON.stringify(event.data))
+              responseReceived = true
+              
+              if (timeoutId) {
+                clearTimeout(timeoutId)
+                timeoutId = null
+              }
+              
+              window.removeEventListener('message', messageListener)
               
               if (event.data.success) {
-                log('✅ OAuth processed successfully')
-                document.getElementById('status').textContent = '✅ Login successful!'
-                document.getElementById('message').innerHTML =
-                  '<div class="success">Your SafeKey account has been authenticated.</div>' +
-                  '<p>Logged in as: ' + (event.data.address ? event.data.address.substring(0, 20) + '...' : 'User') + '</p>' +
-                  '<p>You can close this window now.</p>'
+                showSuccess('Authentication Successful')
+                messageEl.innerHTML = `
+                  <div>Your SafeKey account has been authenticated.</div>
+                  ${event.data.address ? `<div style="margin-top: 8px; font-family: monospace; font-size: 12px; color: #065f46;">Address: ${event.data.address.substring(0, 20)}...</div>` : ''}
+                  <div style="margin-top: 8px; font-size: 12px;">You can close this window.</div>
+                `
               } else {
-                log('❌ OAuth processing failed: ' + (event.data.error || 'Unknown error'))
-                document.getElementById('status').textContent = '❌ Login failed'
-                document.getElementById('message').innerHTML =
-                  '<div class="error">Error: ' + (event.data.error || 'Unknown error') + '</div>' +
-                  '<p>Please try again in the extension.</p>'
+                showError('Authentication Failed')
+                messageEl.innerHTML = `<div>Error: ${event.data.error || 'Unknown error'}</div><div style="margin-top: 8px;">Please try again in the extension.</div>`
               }
               
               setTimeout(() => {
                 try {
                   window.close()
                 } catch (e) {
-                  log('Could not auto-close window')
+                  // Ignore close errors
                 }
-              }, 1500)
+              }, 3000)
             }
-          })
+          }
           
-          document.getElementById('status').textContent = '✅ Authenticating...'
-          document.getElementById('message').innerHTML =
-            '<div class="success">Processing your authentication...</div>' +
-            '<p>Please wait...</p>'
+          window.addEventListener('message', messageListener)
           
+          statusText.textContent = 'Authenticating...'
+          messageEl.textContent = 'Processing your authentication with SafeKey extension...'
+          
+          // Set timeout - if no response in 10 seconds, show error
+          timeoutId = setTimeout(() => {
+            if (!responseReceived) {
+              window.removeEventListener('message', messageListener)
+              showError('Authentication Timeout')
+              messageEl.innerHTML = `
+                <div>No response from SafeKey extension.</div>
+                <div style="margin-top: 8px;">Please check:</div>
+                <ul style="text-align: left; margin-top: 8px; padding-left: 20px;">
+                  <li>The extension is installed and enabled</li>
+                  <li>Open the extension popup to complete authentication</li>
+                </ul>
+              `
+            }
+          }, 10000)
+          
+          // The content script already detected the callback and stored tokens
+          // We just need to notify it via postMessage so it can respond
           // Delay sending the message to give content script time to set up listener
           setTimeout(() => {
             const oauthData = {
@@ -206,22 +297,19 @@
               idToken: idToken,
             }
             
-            log('📤 Sending postMessage with OAuth data to content script (after delay)')
             window.postMessage(oauthData, window.location.origin)
-            log('✅ Sent postMessage with OAuth data to content script')
           }, 500)
         } catch (error) {
-          log('Method 2 exception: ' + error.message)
-          document.getElementById('status').textContent = '⚠️ Error'
-          document.getElementById('message').innerHTML =
-            '<div class="error">Error: ' + error.message + '</div>'
+          console.error('[Callback] Error:', error)
+          showError('Error')
+          messageEl.innerHTML = `<div>Error: ${error.message}</div>`
         }
       }
 
       // Start communication
-      notifyExtension()
-
-      log('Callback initialized')
+      if (idToken) {
+        notifyViaStorage()
+      }
     </script>
   </body>
 </html>

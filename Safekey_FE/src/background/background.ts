@@ -2,8 +2,6 @@
 import { encrypt, decrypt, hashDomain } from '../lib/crypto'
 import {
   initializeEnokiFlow,
-  getGoogleOAuthUrl,
-  getFacebookOAuthUrl,
   completeZkLogin,
   logoutZkLogin,
   isZkLoginActive,
@@ -11,6 +9,8 @@ import {
   getProvider,
   saveZkLoginSessionSecurely,
   clearZkLoginFromStorage,
+  loadZkLoginSessionFromStorage,
+  processOAuthJWT,
 } from '../lib/zklogin'
 
 // In-memory state for the session
@@ -39,7 +39,6 @@ chrome.runtime.onMessage.addListener((request, _sender, sendResponse) => {
     try {
       sessionState.KM = request.KM
       sessionState.isLocked = false
-      console.log('[BG] Session initialized')
       sendResponse({ success: true, message: 'Session initialized' })
     } catch (error) {
       sendResponse({ success: false, error: String(error) })
@@ -51,7 +50,6 @@ chrome.runtime.onMessage.addListener((request, _sender, sendResponse) => {
   if (request.type === 'LOCK_SESSION') {
     sessionState.isLocked = true
     sessionState.KS = undefined
-    console.log('[BG] Session locked')
     sendResponse({ success: true })
     return true
   }
@@ -107,76 +105,167 @@ chrome.runtime.onMessage.addListener((request, _sender, sendResponse) => {
     return true
   }
 
-  // Get zkLogin auth URL
-  if (request.type === 'GET_ZKLOGIN_AUTH_URL') {
+  // Save zkLogin session (called from popup after connecting wallet)
+  if (request.type === 'SAVE_ZKLOGIN_SESSION') {
     ;(async () => {
       try {
-        if (!sessionState.enokiInitialized) {
-          throw new Error('Enoki not initialized')
-        }
-        const authUrl =
-          request.provider === 'google'
-            ? getGoogleOAuthUrl(request.clientId, request.redirectUrl)
-            : getFacebookOAuthUrl(request.clientId, request.redirectUrl)
-        sendResponse({ success: true, authUrl })
-      } catch (error) {
-        sendResponse({ success: false, error: String(error) })
-      }
-    })()
-    return true
-  }
-
-  // Get OAuth URL (new unified handler)
-  if (request.type === 'GET_OAUTH_URL') {
-    try {
-      const authUrl =
-        request.provider === 'google'
-          ? getGoogleOAuthUrl(request.clientId, request.redirectUrl)
-          : getFacebookOAuthUrl(request.clientId, request.redirectUrl)
-      sendResponse({ success: true, authUrl })
-    } catch (error) {
-      sendResponse({ success: false, error: String(error) })
-    }
-    return true
-  }
-
-  // Complete zkLogin after OAuth redirect
-  if (request.type === 'COMPLETE_ZKLOGIN') {
-    ;(async () => {
-      try {
-        if (!sessionState.enokiInitialized) {
-          throw new Error('Enoki not initialized')
-        }
-        console.log('[BG] Processing zkLogin completion...')
-        console.log('[BG] Hash provided:', request.hash?.substring(0, 150) || 'none')
-        console.log('[BG] Search provided:', request.search?.substring(0, 150) || 'none')
-        console.log('[BG] idToken length:', request.idToken?.length || 0)
+        // Load session from popup context (it's already complete from processOAuthJWT)
+        // The session should already be in storage from popup, but we'll ensure it's saved
+        await loadZkLoginSessionFromStorage()
         
-        const session = await completeZkLogin(request.hash || request.search, request.idToken)
-        await saveZkLoginSessionSecurely()
-        console.log('[BG] zkLogin successful, user address:', session.address)
-        sendResponse({ 
-          success: true, 
-          message: 'zkLogin completed',
-          address: session.address,
-          provider: session.provider,
-        })
+        // If session exists and is complete, just save it
+        // Otherwise, create minimal session (fallback)
+        const address = request.address
+        const provider = request.provider
+        
+        if (!address) {
+          throw new Error('No address provided')
+        }
+
+        // Check if we already have a complete session
+        const existingSession = await loadZkLoginSessionFromStorage()
+        if (existingSession && existingSession.address === address && existingSession.provider === provider) {
+          await saveZkLoginSessionSecurely()
+        } else {
+          // Fallback: create minimal session (shouldn't happen in normal flow)
+          await completeZkLogin(address, provider)
+          await saveZkLoginSessionSecurely()
+        }
+        
+        sendResponse({ success: true, message: 'Session saved' })
       } catch (error) {
-        console.error('[BG] zkLogin completion failed:', error)
+        console.error('[BG] Failed to save session:', error)
         sendResponse({ success: false, error: String(error) })
       }
     })()
     return true
   }
+
+  // Get OAuth token (for popup to query)
+  if (request.type === 'GET_OAUTH_TOKEN') {
+    ;(async () => {
+      try {
+        // Try session storage first
+        let data: any = {}
+        if (chrome.storage.session) {
+          try {
+            data = await chrome.storage.session.get('oauth_id_token')
+            if (data.oauth_id_token) {
+              sendResponse({ success: true, id_token: data.oauth_id_token })
+              return
+            }
+          } catch (sessionError) {
+            // Continue to local storage
+          }
+        }
+        
+        // Fallback to local storage
+        data = await chrome.storage.local.get('oauth_id_token')
+        if (data.oauth_id_token) {
+          sendResponse({ success: true, id_token: data.oauth_id_token })
+        } else {
+          sendResponse({ success: false, error: 'No token found' })
+        }
+      } catch (error) {
+        console.error('[BG] Error getting OAuth token:', error)
+        sendResponse({ success: false, error: String(error) })
+      }
+    })()
+    return true
+  }
+
+  // OAuth callback from content script
+  if (request.type === 'OAUTH_CALLBACK') {
+    ;(async () => {
+      try {
+        if (request.id_token) {
+          // Store in session storage if available (Chrome), otherwise local (Firefox)
+          const storage = chrome.storage.session || chrome.storage.local
+          
+          await storage.set({ 
+            oauth_id_token: request.id_token,
+            oauth_access_token: request.access_token || ''
+          })
+          
+          // Verify it was stored
+          const verify = await storage.get('oauth_id_token')
+          if (!verify.oauth_id_token) {
+            // Try local storage as fallback
+            await chrome.storage.local.set({
+              oauth_id_token: request.id_token,
+              oauth_access_token: request.access_token || ''
+            })
+          }
+          
+          // Automatically process the OAuth token and complete zkLogin flow
+          try {
+            const provider = request.provider || 'google'
+            const address = await processOAuthJWT(request.id_token, provider as any)
+            
+            // Save the session
+            await saveZkLoginSessionSecurely()
+            
+            // Notify any open popup windows that the session is ready
+            try {
+              chrome.runtime.sendMessage({
+                type: 'ZKLOGIN_SESSION_READY',
+                address,
+                provider,
+              }).catch(() => {
+                // Ignore if no popup is open
+              })
+            } catch (notifyError) {
+              // Ignore notification errors
+            }
+            
+            sendResponse({ 
+              success: true, 
+              message: 'OAuth tokens stored and zkLogin session created',
+              address,
+            })
+          } catch (processError) {
+            console.error('[BG] Failed to process OAuth token automatically:', processError)
+            sendResponse({ 
+              success: true, 
+              message: 'OAuth tokens stored (processing failed, will retry in popup)',
+              error: String(processError)
+            })
+          }
+        } else {
+          console.error('[BG] No ID token in callback message')
+          sendResponse({ success: false, error: 'No ID token in callback' })
+        }
+      } catch (error) {
+        console.error('[BG] OAuth callback error:', error)
+        sendResponse({ success: false, error: String(error) })
+      }
+    })()
+    return true
+  }
+
 
   // Get zkLogin status
   if (request.type === 'GET_ZKLOGIN_STATUS') {
-    sendResponse({
-      success: true,
-      isActive: isZkLoginActive(),
-      address: getUserAddress(),
-      provider: getProvider(),
-    })
+    ;(async () => {
+      try {
+        // Load session from storage to ensure we have the latest state
+        await loadZkLoginSessionFromStorage()
+        sendResponse({
+          success: true,
+          isActive: isZkLoginActive(),
+          address: getUserAddress(),
+          provider: getProvider(),
+        })
+      } catch (error) {
+        console.error('[BG] Error loading session for status check:', error)
+        sendResponse({
+          success: true,
+          isActive: false,
+          address: null,
+          provider: null,
+        })
+      }
+    })()
     return true
   }
 
@@ -197,22 +286,14 @@ chrome.runtime.onMessage.addListener((request, _sender, sendResponse) => {
 
 // Install event - set up initial state
 chrome.runtime.onInstalled.addListener(() => {
-  console.log('SafeKey extension installed')
   chrome.storage.local.set({
     isEnabled: true,
     lastActive: new Date().toISOString(),
   })
 })
 
-// Listen for tab updates
-chrome.tabs.onUpdated.addListener((_tabId, changeInfo, tab) => {
-  if (changeInfo.status === 'complete') {
-    console.log('Tab loaded:', tab.url)
-  }
-})
-
 // Initialize Enoki on service worker startup
-;(() => {
+;(async () => {
   try {
     const enokiApiKey = import.meta.env.VITE_ENOKI_API_KEY
     const googleClientId = import.meta.env.VITE_OAUTH_CLIENT_ID
@@ -221,7 +302,11 @@ chrome.tabs.onUpdated.addListener((_tabId, changeInfo, tab) => {
       throw new Error('VITE_ENOKI_API_KEY not set in environment')
     }
     
-    // Pass provider configuration to Enoki so it knows what clientIds to expect
+    if (!googleClientId) {
+      console.warn('[BG] VITE_OAUTH_CLIENT_ID not set in environment')
+    }
+    
+    // Pass provider configuration to Enoki
     const providers: Record<string, { clientId: string }> = {}
     if (googleClientId) {
       providers.google = { clientId: googleClientId }
@@ -229,37 +314,19 @@ chrome.tabs.onUpdated.addListener((_tabId, changeInfo, tab) => {
     
     initializeEnokiFlow(enokiApiKey, providers || undefined)
     sessionState.enokiInitialized = true
-    console.log('[BG] Enoki initialized on service worker startup with providers:', Object.keys(providers))
+    
+    // Load existing zkLogin session from storage
+    try {
+      await loadZkLoginSessionFromStorage()
+    } catch (error) {
+      console.error('[BG] Failed to load session on startup:', error)
+    }
   } catch (error) {
     console.error('[BG] Failed to initialize Enoki:', error)
   }
 })()
 
-// Monitor for OAuth callback data from web page via chrome.storage
-chrome.storage.onChanged.addListener((changes, areaName) => {
-  if (areaName === 'local' && changes.safekey_oauth_callback) {
-    const callbackData = changes.safekey_oauth_callback.newValue
-    if (callbackData) {
-      console.log('[BG] OAuth callback data detected in storage')
-      ;(async () => {
-        try {
-          if (!sessionState.enokiInitialized) {
-            console.error('[BG] Enoki not initialized when processing OAuth')
-            chrome.storage.local.remove('safekey_oauth_callback')
-            return
-          }
-          console.log('[BG] Processing zkLogin with hash from storage')
-          const session = await completeZkLogin(callbackData.hash)
-          await saveZkLoginSessionSecurely()
-          console.log('[BG] ✅ zkLogin completed successfully')
-          console.log('[BG] User logged in:', session.address)
-          chrome.storage.local.remove('safekey_oauth_callback')
-        } catch (error) {
-          console.error('[BG] Failed to complete zkLogin from storage callback:', error)
-          chrome.storage.local.remove('safekey_oauth_callback')
-        }
-      })()
-    }
-  }
-})
+// Note: OAuth callback is now handled via OAUTH_CALLBACK message from content script
+// This old storage listener is kept for backward compatibility but shouldn't be used
+// The content script stores tokens in chrome.storage.session, not chrome.storage.local
 

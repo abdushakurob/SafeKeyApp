@@ -40,6 +40,24 @@ function copyExtensionFilesPlugin() {
         fs.copyFileSync(callbackSrc, callbackDest)
         console.log('✓ Callback HTML moved to dist/extension/')
       }
+
+      // Copy oauth-handler.html from public to dist/extension/
+      const oauthSrc = path.resolve(__dirname, 'public/oauth-handler.html')
+      const oauthDest = path.resolve(__dirname, 'dist/extension/oauth-handler.html')
+      
+      if (fs.existsSync(oauthSrc)) {
+        fs.copyFileSync(oauthSrc, oauthDest)
+        console.log('✓ OAuth handler HTML copied to dist/extension/')
+      }
+
+      // Copy oauth-handler.js from public to dist/extension/
+      const oauthJsSrc = path.resolve(__dirname, 'public/oauth-handler.js')
+      const oauthJsDest = path.resolve(__dirname, 'dist/extension/oauth-handler.js')
+      
+      if (fs.existsSync(oauthJsSrc)) {
+        fs.copyFileSync(oauthJsSrc, oauthJsDest)
+        console.log('✓ OAuth handler JS copied to dist/extension/')
+      }
     },
   }
 }

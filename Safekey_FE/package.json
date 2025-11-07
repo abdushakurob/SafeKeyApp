@@ -15,9 +15,11 @@
     "server": "node server.js"
   },
   "dependencies": {
+    "@mysten/dapp-kit": "^0.19.8",
     "@mysten/enoki": "^0.12.10",
     "@mysten/seal": "^0.9.3",
     "@mysten/sui.js": "^0.54.1",
+    "@mysten/wallet-standard": "^0.19.6",
     "fs": "^0.0.1-security",
     "js-sha256": "^0.11.1",
     "path": "^0.12.7",

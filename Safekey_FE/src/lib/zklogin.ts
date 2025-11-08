@@ -142,12 +142,32 @@ function populateWalletRegistry(): void {
   try {
     const wallets = getWallets().get()
     const enokiWallets = wallets.filter(isEnokiWallet)
+    console.log('[zkLogin] Found', enokiWallets.length, 'Enoki wallet(s)')
     for (const wallet of enokiWallets) {
       walletRegistry.set(wallet.provider, wallet)
+      console.log('[zkLogin] Registered wallet for provider:', wallet.provider)
     }
   } catch (error) {
     console.error('[zkLogin] Failed to populate wallet registry:', error)
   }
+}
+
+// Retry populating wallet registry (wallets might not be available immediately)
+export async function ensureWalletRegistryPopulated(maxRetries: number = 5, delayMs: number = 200): Promise<void> {
+  for (let i = 0; i < maxRetries; i++) {
+    populateWalletRegistry()
+    const wallets = getWallets().get()
+    const enokiWallets = wallets.filter(isEnokiWallet)
+    if (enokiWallets.length > 0) {
+      console.log('[zkLogin] ✅ Wallet registry populated with', enokiWallets.length, 'wallet(s)')
+      return
+    }
+    if (i < maxRetries - 1) {
+      console.log(`[zkLogin] No wallets found, retrying in ${delayMs}ms... (${i + 1}/${maxRetries})`)
+      await new Promise(resolve => setTimeout(resolve, delayMs))
+    }
+  }
+  console.warn('[zkLogin] ⚠️ Wallet registry still empty after', maxRetries, 'retries')
 }
 
 export function getEnokiWallet(provider: AuthProvider): EnokiWallet | undefined {

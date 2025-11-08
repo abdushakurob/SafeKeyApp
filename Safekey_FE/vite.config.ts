@@ -41,6 +41,15 @@ function copyExtensionFilesPlugin() {
         console.log('✓ Callback HTML moved to dist/extension/')
       }
 
+      // Move dashboard.html from src/pages/dashboard.html to dist/extension/dashboard.html
+      const dashboardSrc = path.resolve(__dirname, 'dist/extension/src/pages/dashboard.html')
+      const dashboardDest = path.resolve(__dirname, 'dist/extension/dashboard.html')
+      
+      if (fs.existsSync(dashboardSrc)) {
+        fs.copyFileSync(dashboardSrc, dashboardDest)
+        console.log('✓ Dashboard HTML moved to dist/extension/')
+      }
+
       // Copy oauth-handler.html from public to dist/extension/
       const oauthSrc = path.resolve(__dirname, 'public/oauth-handler.html')
       const oauthDest = path.resolve(__dirname, 'dist/extension/oauth-handler.html')
@@ -76,8 +85,10 @@ export default defineConfig(({ mode }) => {
           input: {
             popup: path.resolve(__dirname, 'src/popup/popup.html'),
             callback: path.resolve(__dirname, 'src/popup/callback.html'),
+            dashboard: path.resolve(__dirname, 'src/pages/dashboard.html'),
             background: path.resolve(__dirname, 'src/background/background.ts'),
             content: path.resolve(__dirname, 'src/content/content.ts'),
+            autofill: path.resolve(__dirname, 'src/content/autofill.ts'),
           },
           output: {
             entryFileNames: '[name].js',

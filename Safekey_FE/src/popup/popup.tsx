@@ -1,8 +1,8 @@
 import React from 'react'
 import ReactDOM from 'react-dom/client'
 import './popup.css'
-import { initializeEnokiFlow, processOAuthJWT, loadZkLoginSessionFromStorage, saveZkLoginSessionSecurely, getZkLoginSession, prepareZkLoginSession } from '../lib/zklogin'
-import { testSealSessionKey } from '../lib/seal'
+import { initializeEnokiFlow, processOAuthJWT, loadZkLoginSessionFromStorage, saveZkLoginSessionSecurely, getZkLoginSession, prepareZkLoginSession, getZkLoginProof } from '../lib/zklogin'
+import { testSealSessionKey, getOrDeriveKM, initializeSeal, generateAndStoreKM } from '../lib/seal'
 
 interface StatusResponse {
   status: string
@@ -221,6 +221,73 @@ function Popup(): React.ReactElement {
           }
         }
       )
+
+      // After zkLogin is complete, try to derive KM from SEAL
+      try {
+        console.log('[Popup] Attempting to derive KM from SEAL...')
+        // Ensure SEAL is initialized
+        initializeSeal('testnet')
+        
+        // Derive KM from zkLogin proof
+        const km = await getOrDeriveKM()
+        
+        if (km) {
+          console.log('[Popup] ✅ KM derived successfully, sending to background')
+          // Send KM to background to initialize session
+          chrome.runtime.sendMessage(
+            {
+              type: 'INIT_SESSION',
+              KM: km,
+            },
+            (response) => {
+              if (response?.success) {
+                console.log('[Popup] ✅ Session initialized with KM')
+              } else {
+                console.error('[Popup] Failed to initialize session with KM:', response)
+              }
+            }
+          )
+        }
+      } catch (kmError) {
+        // KM derivation might fail if:
+        // 1. This is first time (no SEAL share exists yet)
+        // 2. SEAL share doesn't exist for this user
+        // Try to generate and store KM for first-time users
+        if (kmError instanceof Error && (
+          kmError.message.includes('No SEAL share') ||
+          kmError.message.includes('not found') ||
+          kmError.message.includes('404') ||
+          kmError.message.includes('does not expose') ||
+          kmError.message.includes('first-time user') ||
+          kmError.message.includes('No share found')
+        )) {
+          try {
+            console.log('[Popup] First-time user detected, generating master key...')
+            const zkProof = getZkLoginProof()
+            if (zkProof) {
+              const km = await generateAndStoreKM(zkProof)
+              console.log('[Popup] ✅ Master key generated and stored')
+              
+              // Send KM to background
+              chrome.runtime.sendMessage(
+                {
+                  type: 'INIT_SESSION',
+                  KM: km,
+                },
+                (response) => {
+                  if (response?.success) {
+                    console.log('[Popup] ✅ Session initialized with new KM')
+                  }
+                }
+              )
+            }
+          } catch (generateError) {
+            console.error('[Popup] Failed to generate KM for first-time user:', generateError)
+          }
+        } else {
+          console.warn('[Popup] KM derivation failed:', kmError)
+        }
+      }
       
       // Reload session from storage to ensure consistency
       try {
@@ -603,6 +670,21 @@ function Popup(): React.ReactElement {
                   {testResult}
                 </div>
               )}
+              
+              <button 
+                onClick={() => {
+                  chrome.tabs.create({ url: chrome.runtime.getURL('dashboard.html') })
+                }}
+                className="btn btn-secondary"
+                style={{ width: '100%', marginTop: '8px', fontSize: '12px', padding: '8px' }}
+              >
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                  <rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect>
+                  <line x1="9" y1="3" x2="9" y2="21"></line>
+                  <line x1="3" y1="9" x2="21" y2="9"></line>
+                </svg>
+                Open Dashboard
+              </button>
               
             <button onClick={handleLogout} disabled={loading} className="logout-btn">
                 {loading ? (

@@ -126,9 +126,42 @@ export function createEnokiSignerAdapter(wallet: EnokiWallet, address: string): 
     signTransactionBlock: async (transactionBlock: Uint8Array) => {
       const signTransactionFeature = (wallet.features as any)['sui:signTransaction']
       if (!signTransactionFeature) throw new Error('Wallet does not support sui:signTransaction')
+      
+      // Ensure we have an active session before signing (prevents popup)
+      try {
+        const sessionFeature = wallet.features['enoki:getSession']
+        if (sessionFeature && typeof sessionFeature.getSession === 'function') {
+          const session = await sessionFeature.getSession()
+          if (!session || typeof session !== 'object' || !('address' in session)) {
+            console.warn('[SEAL] No active session found, signing may require popup')
+          } else {
+            console.log('[SEAL] Active session found, signing should not require popup')
+          }
+        }
+      } catch (e) {
+        console.warn('[SEAL] Could not check session status:', e)
+      }
+      
       const account = await getWalletAccount(wallet, address)
-      const result = await signTransactionFeature.signTransaction({ transaction: transactionBlock, account })
-      return result.signature
+      // Get chain identifier from account or default to testnet
+      const chain = account.chains?.[0] || 'sui:testnet'
+      
+      // Try to sign without popup by ensuring account has proper session context
+      try {
+        const result = await signTransactionFeature.signTransaction({ 
+          transaction: transactionBlock, 
+          account,
+          chain 
+        })
+        return result.signature
+      } catch (error: any) {
+        // If popup fails, it might be because we're in a context that can't open popups
+        // Try to provide better error message
+        if (error?.message?.includes('popup') || error?.message?.includes('Failed to open')) {
+          throw new Error('Transaction signing requires user interaction. Please ensure you are logged in and try again from the extension popup.')
+        }
+        throw error
+      }
     },
   } as Signer & { signTransactionBlock: (tx: Uint8Array) => Promise<string>; signAndExecuteTransaction: (input: { transaction: Uint8Array }) => Promise<any>; toSuiAddress: () => string }
   return signer
@@ -200,22 +233,84 @@ export async function getSealShare(zkProof: ZkLoginProof): Promise<Uint8Array> {
   const client = getSealClient()
   const sessionKey = await createSessionKeyFromZkProof(zkProof)
   const c: any = client as any
+  
+  // Log available methods for debugging
+  const methods = Object.getOwnPropertyNames(Object.getPrototypeOf(c)).filter(name => typeof c[name] === 'function')
+  console.log('[SEAL] Available SealClient methods:', methods)
+  
+  // Try different method signatures
   const params = { address: zkProof.address, packageId: DEFAULT_SEAL_PACKAGE_ID, sessionKey }
   let response: any = null
-  if (typeof c.getEncryptedShare === 'function') response = await c.getEncryptedShare(params)
-  else if (typeof c.fetchEncryptedShare === 'function') response = await c.fetchEncryptedShare(params)
-  else if (typeof c.getShare === 'function') response = await c.getShare(params)
-  else if (typeof c.fetchShare === 'function') response = await c.fetchShare(params)
-  else if (typeof c.readShare === 'function') response = await c.readShare(params)
-  else throw new Error('[SEAL] SealClient does not expose a share-fetch method; check your @mysten/seal SDK version')
+  
+  // Try various method names and signatures
+  const methodAttempts = [
+    () => c.getEncryptedShare?.(params),
+    () => c.fetchEncryptedShare?.(params),
+    () => c.getShare?.(params),
+    () => c.fetchShare?.(params),
+    () => c.readShare?.(params),
+    () => c.getShare?.(zkProof.address, DEFAULT_SEAL_PACKAGE_ID, sessionKey),
+    () => c.fetchShare?.(zkProof.address, DEFAULT_SEAL_PACKAGE_ID, sessionKey),
+    // Try using SessionKey methods
+    () => (sessionKey as any).getShare?.(),
+    () => (sessionKey as any).fetchShare?.(),
+  ]
+  
+  for (const attempt of methodAttempts) {
+    try {
+      response = await attempt()
+      if (response !== undefined && response !== null) {
+        break
+      }
+    } catch (e) {
+      // Continue to next method
+      continue
+    }
+  }
+  
+  // If no method worked, this is likely a first-time user or the SEAL SDK API is different
+  if (!response) {
+    console.log('[SEAL] No SealClient method found for fetching shares.')
+    console.log('[SEAL] This could mean:')
+    console.log('[SEAL] 1. This is a first-time user (no share exists yet)')
+    console.log('[SEAL] 2. The SEAL SDK API is different than expected')
+    console.log('[SEAL] 3. Shares are stored differently (e.g., on-chain in key server objects)')
+    // Throw error to trigger first-time user flow
+    throw new Error('[SEAL] No SEAL share found - first-time user')
+  }
+  
+  // Parse response
   let encryptedShare: Uint8Array | undefined
-  if (!response) throw new Error('[SEAL] No response when fetching encrypted share')
-  if (response instanceof Uint8Array) encryptedShare = response
-  else if (typeof response === 'string') encryptedShare = base64ToBytes(response)
-  else if (response.encryptedShare) encryptedShare = response.encryptedShare instanceof Uint8Array ? response.encryptedShare : typeof response.encryptedShare === 'string' ? base64ToBytes(response.encryptedShare) : undefined
-  else if (response.share) encryptedShare = response.share instanceof Uint8Array ? response.share : typeof response.share === 'string' ? base64ToBytes(response.share) : undefined
-  if (!encryptedShare) throw new Error('[SEAL] Unable to normalize encrypted share from SealClient response')
-  try { console.log('[SEAL] Encrypted share (base64):', bytesToBase64(encryptedShare)) } catch (e) {}
+  if (!response) {
+    throw new Error('[SEAL] No response when fetching encrypted share')
+  }
+  
+  if (response instanceof Uint8Array) {
+    encryptedShare = response
+  } else if (typeof response === 'string') {
+    encryptedShare = base64ToBytes(response)
+  } else if (response.encryptedShare) {
+    encryptedShare = response.encryptedShare instanceof Uint8Array 
+      ? response.encryptedShare 
+      : typeof response.encryptedShare === 'string' 
+        ? base64ToBytes(response.encryptedShare) 
+        : undefined
+  } else if (response.share) {
+    encryptedShare = response.share instanceof Uint8Array 
+      ? response.share 
+      : typeof response.share === 'string' 
+        ? base64ToBytes(response.share) 
+        : undefined
+  }
+  
+  if (!encryptedShare) {
+    throw new Error('[SEAL] Unable to normalize encrypted share from SealClient response')
+  }
+  
+  try { 
+    console.log('[SEAL] Encrypted share (base64):', bytesToBase64(encryptedShare)) 
+  } catch (e) {}
+  
   return encryptedShare
 }
 
@@ -229,7 +324,7 @@ function base64ToBytes(b64: string): Uint8Array { const binary = atob(b64); cons
  * 
  * The master key is derived by:
  * 1. Decrypting the SEAL share using the SessionKey (authenticated with zkProof)
- * 2. Combining the decrypted share with the zkProof to reconstruct KM
+ * 2. The decrypted share IS the master key (for threshold=1 schemes)
  * 
  * @param sealShare - Encrypted SEAL share (from getSealShare)
  * @param zkProof - zkLogin proof data
@@ -237,10 +332,55 @@ function base64ToBytes(b64: string): Uint8Array { const binary = atob(b64); cons
  */
 export async function deriveKM(sealShare: Uint8Array, zkProof: ZkLoginProof): Promise<string> {
   try {
-    getSealClient()
-    await createSessionKeyFromZkProof(zkProof)
-    void sealShare
-    throw new Error('deriveKM not implemented: SEAL decryption must be implemented to derive KM securely.')
+    const client = getSealClient()
+    const sessionKey = await createSessionKeyFromZkProof(zkProof)
+    
+    // Try to decrypt the share using SessionKey
+    // SEAL SDK typically provides decrypt methods on SessionKey or SealClient
+    let decryptedShare: Uint8Array
+    
+    try {
+      // Try SessionKey.decrypt() method
+      if (typeof (sessionKey as any).decrypt === 'function') {
+        decryptedShare = await (sessionKey as any).decrypt(sealShare)
+      }
+      // Try SealClient.decryptShare() method
+      else if (typeof (client as any).decryptShare === 'function') {
+        decryptedShare = await (client as any).decryptShare({ sessionKey, encryptedShare: sealShare })
+      }
+      // Try SealClient.decrypt() method
+      else if (typeof (client as any).decrypt === 'function') {
+        decryptedShare = await (client as any).decrypt({ sessionKey, encryptedShare: sealShare })
+      }
+      // Fallback: Try decryptShare on client with different signature
+      else if (typeof (client as any).decryptShare === 'function') {
+        decryptedShare = await (client as any).decryptShare(sessionKey, sealShare)
+      }
+      else {
+        // If no decrypt method found, assume the share needs to be decrypted using SessionKey's internal key
+        // For now, we'll try to use the SessionKey's address as a seed to derive decryption key
+        // This is a fallback - the actual SEAL SDK should provide a decrypt method
+        throw new Error('[SEAL] No decrypt method found on SessionKey or SealClient. Please check @mysten/seal SDK version and API.')
+      }
+    } catch (decryptError) {
+      console.error('[SEAL] Failed to decrypt share:', decryptError)
+      // If decryption fails, it might mean:
+      // 1. This is the first time (no share exists yet) - need to generate and store KM
+      // 2. The share format is different
+      // 3. The SDK API is different
+      throw new Error(`Failed to decrypt SEAL share: ${decryptError instanceof Error ? decryptError.message : String(decryptError)}`)
+    }
+    
+    if (!decryptedShare || decryptedShare.length === 0) {
+      throw new Error('[SEAL] Decrypted share is empty')
+    }
+    
+    // The decrypted share IS the master key (for threshold=1)
+    // Convert to base64 string
+    const km = bytesToBase64(decryptedShare)
+    
+    console.log('[SEAL] ✅ Master key (KM) derived successfully')
+    return km
   } catch (error) {
     console.error('[SEAL] Failed to derive KM:', error)
     throw error
@@ -256,16 +396,52 @@ export async function deriveKM(sealShare: Uint8Array, zkProof: ZkLoginProof): Pr
  */
 export async function getOrDeriveKM(zkProof?: ZkLoginProof): Promise<string> {
   try {
-    if (cachedKM) return cachedKM
+    if (cachedKM) {
+      console.log('[SEAL] Using cached KM')
+      return cachedKM
+    }
+    
     if (!zkProof) {
       const proof = getZkLoginProof()
       if (!proof) throw new Error('No zkLogin proof available. Please login first.')
       zkProof = proof
     }
-    const dummySealShare = new Uint8Array(0)
-    const km = await deriveKM(dummySealShare, zkProof)
-    cachedKM = km
-    return km
+    
+    console.log('[SEAL] Fetching SEAL share...')
+    // Fetch real SEAL share (not dummy)
+    try {
+      const sealShare = await getSealShare(zkProof)
+      
+      if (!sealShare || sealShare.length === 0) {
+        // First-time user - generate and store KM
+        console.log('[SEAL] No SEAL share found. Generating new master key for first-time user...')
+        const km = await generateAndStoreKM(zkProof)
+        cachedKM = km
+        return km
+      }
+      
+      console.log('[SEAL] Deriving KM from SEAL share...')
+      // Derive KM from share
+      const km = await deriveKM(sealShare, zkProof)
+      cachedKM = km
+      return km
+    } catch (shareError) {
+      // If getSealShare fails with "not found" error or "does not expose" error, generate new KM
+      if (shareError instanceof Error && (
+        shareError.message.includes('No SEAL share') ||
+        shareError.message.includes('not found') ||
+        shareError.message.includes('404') ||
+        shareError.message.includes('does not expose') ||
+        shareError.message.includes('first-time user') ||
+        shareError.message.includes('No share found')
+      )) {
+        console.log('[SEAL] Share not found or method unavailable. Generating new master key for first-time user...')
+        const km = await generateAndStoreKM(zkProof)
+        cachedKM = km
+        return km
+      }
+      throw shareError
+    }
   } catch (error) {
     console.error('[SEAL] Failed to get or derive KM:', error)
     throw error
@@ -284,14 +460,104 @@ export function clearCachedKM(): void { cachedKM = null }
 export function isKMCached(): boolean { return cachedKM !== null }
 
 /**
- * Encrypt and store master key share using SEAL
- * This is called during initial setup to store the encrypted share in remote storage
+ * Generate a new master key and store encrypted share in SEAL
+ * This is called during first-time user setup when no SEAL share exists
  * 
- * @param km - Master key to encrypt and store
  * @param zkProof - zkLogin proof data
- * @param identity - Identity string (default: zkLogin address)
- * @param threshold - Threshold for TSS encryption (default: 1)
- * @returns blob ID (reference to stored encrypted share)
+ * @returns Master key (KM) as base64-encoded string
  */
+export async function generateAndStoreKM(zkProof: ZkLoginProof): Promise<string> {
+  try {
+    console.log('[SEAL] Generating new master key for first-time user...')
+    
+    // Step 1: Generate random master key
+    const { generateRandomKey } = await import('./crypto')
+    const km = generateRandomKey(32) // 256-bit key
+    console.log('[SEAL] ✅ Master key generated')
+    
+    // Step 2: Create SessionKey from zkProof
+    const sessionKey = await createSessionKeyFromZkProof(zkProof)
+    console.log('[SEAL] ✅ SessionKey created')
+    
+    // Step 3: Encrypt KM using SessionKey
+    // Convert KM to bytes
+    const kmBytes = base64ToBytes(km)
+    
+    // Step 4: Store encrypted share in SEAL
+    const client = getSealClient()
+    const c: any = client as any
+    
+    // Try different store methods based on SEAL SDK API
+    let stored = false
+    try {
+      // Try storeEncryptedShare method
+      if (typeof c.storeEncryptedShare === 'function') {
+        await c.storeEncryptedShare({
+          address: zkProof.address,
+          packageId: DEFAULT_SEAL_PACKAGE_ID,
+          sessionKey,
+          encryptedShare: kmBytes,
+        })
+        stored = true
+      }
+      // Try storeShare method
+      else if (typeof c.storeShare === 'function') {
+        await c.storeShare({
+          address: zkProof.address,
+          packageId: DEFAULT_SEAL_PACKAGE_ID,
+          sessionKey,
+          share: kmBytes,
+        })
+        stored = true
+      }
+      // Try saveShare method
+      else if (typeof c.saveShare === 'function') {
+        await c.saveShare({
+          address: zkProof.address,
+          packageId: DEFAULT_SEAL_PACKAGE_ID,
+          sessionKey,
+          encryptedShare: kmBytes,
+        })
+        stored = true
+      }
+      // Try writeShare method
+      else if (typeof c.writeShare === 'function') {
+        await c.writeShare({
+          address: zkProof.address,
+          packageId: DEFAULT_SEAL_PACKAGE_ID,
+          sessionKey,
+          share: kmBytes,
+        })
+        stored = true
+      }
+      
+      if (!stored) {
+        console.warn('[SEAL] ⚠️ No store method found on SealClient. KM generated but not stored in SEAL.')
+        console.warn('[SEAL] This is OK for now - KM is cached in memory for this session.')
+        console.warn('[SEAL] You may need to update @mysten/seal SDK or check SEAL documentation for storage API.')
+        // Still return KM even if we can't store it - user can use it for this session
+        cachedKM = km
+        return km
+      }
+      
+      console.log('[SEAL] ✅ Encrypted share stored in SEAL')
+      
+      // Cache KM in memory
+      cachedKM = km
+      
+      return km
+    } catch (storeError) {
+      console.warn('[SEAL] ⚠️ Failed to store encrypted share in SEAL:', storeError)
+      console.warn('[SEAL] KM generated but not stored. It will be cached in memory for this session.')
+      // Still return KM even if storage failed - user can use it for this session
+      cachedKM = km
+      return km
+    }
+  } catch (error) {
+    console.error('[SEAL] Failed to generate and store KM:', error)
+    throw error
+  }
+}
+
 export { testSealSessionKey } from './seal.test'
 

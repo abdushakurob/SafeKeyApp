@@ -131,14 +131,21 @@ module safekey::vault {
     
     /// SEAL approval function for access control
     /// This function is called by SEAL key servers to verify access to decryption keys
-    /// The id parameter is the user's address (identity) without the package prefix
-    /// This allows the user to retrieve their SEAL share for master key derivation
-    entry fun seal_approve(id: vector<u8>, ctx: &tx_context::TxContext) {
+    /// According to SEAL docs: https://seal-docs.wal.app/UsingSeal/
+    /// - First parameter must be the requested identity (id: vector<u8>), excluding package ID prefix
+    /// - Function should abort if access is not granted
+    /// - Should be defined as entry function
+    entry fun seal_approve(id: vector<u8>, clock: &Clock, ctx: &tx_context::TxContext) {
         let sender = tx_context::sender(ctx);
         let sender_bytes = sender.to_bytes();
         
         // Verify that the id (user address) matches the transaction sender
         // This ensures only the user can retrieve their own SEAL share
+        // If access is not granted, abort (as per SEAL requirements)
         assert!(sender_bytes == id, ENotAuthorized);
+        
+        // Clock parameter is required by SEAL for transaction validation
+        // We don't need to use it, but it must be present in the signature
+        let _ = clock;
     }
 }

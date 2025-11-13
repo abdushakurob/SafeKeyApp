@@ -128,4 +128,17 @@ module safekey::vault {
     public fun entry_exists(vault: &UserVault, domain_hash: vector<u8>): bool {
         dynamic_field::exists_<vector<u8>>(&vault.id, domain_hash)
     }
+    
+    /// SEAL approval function for access control
+    /// This function is called by SEAL key servers to verify access to decryption keys
+    /// The id parameter is the user's address (identity) without the package prefix
+    /// This allows the user to retrieve their SEAL share for master key derivation
+    entry fun seal_approve(id: vector<u8>, ctx: &tx_context::TxContext) {
+        let sender = tx_context::sender(ctx);
+        let sender_bytes = sender.to_bytes();
+        
+        // Verify that the id (user address) matches the transaction sender
+        // This ensures only the user can retrieve their own SEAL share
+        assert!(sender_bytes == id, ENotAuthorized);
+    }
 }

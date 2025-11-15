@@ -8,6 +8,7 @@ import { saveCredential } from '../lib/credentials'
 import { deriveMasterKey } from '../lib/credentials'
 import { storeSession as storeSessionInStore, clearSession as clearSessionInStore, getSession as getSessionFromStore } from '../server/session-store'
 import { signAndExecuteSponsoredTransaction } from '../lib/sponsored-transactions'
+import { API_BASE_URL } from '../lib/api-config'
 
 export default function Dashboard() {
   const currentAccount = useCurrentAccount()
@@ -72,7 +73,7 @@ export default function Dashboard() {
   useEffect(() => {
     const checkExtensionStatus = async () => {
       try {
-        const response = await fetch('http://localhost:3001/api/extension-status')
+        const response = await fetch(`${API_BASE_URL}/extension-status`)
         if (response.ok) {
           const data = await response.json()
           setExtensionInstalled(data.installed === true)
@@ -144,7 +145,7 @@ export default function Dashboard() {
             masterKey,
           })
           
-          return fetch('http://localhost:3001/api/sync-session', {
+          return fetch(`${API_BASE_URL}/sync-session`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
@@ -185,7 +186,7 @@ export default function Dashboard() {
 
     const processQueue = async () => {
       try {
-        const response = await fetch('http://localhost:3001/api/pending-saves')
+        const response = await fetch(`${API_BASE_URL}/pending-saves`)
         const data = await response.json()
         
         if (data.success && data.pending && data.pending.length > 0) {
@@ -209,7 +210,7 @@ export default function Dashboard() {
                 signAndExecute
               )
               
-              await fetch(`http://localhost:3001/api/pending-saves/${item.id}/complete`, {
+              await fetch(`${API_BASE_URL}/pending-saves/${item.id}/complete`, {
                 method: 'POST',
               })
               
@@ -259,7 +260,7 @@ export default function Dashboard() {
         throw new Error('Session createdAt is required')
       }
       
-      await fetch('http://localhost:3001/api/sync-session', {
+      await fetch(`${API_BASE_URL}/sync-session`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -280,14 +281,14 @@ export default function Dashboard() {
     
     setLoadingCredentials(true)
     try {
-      const response = await fetch('http://localhost:3001/api/all-credentials')
+      const response = await fetch(`${API_BASE_URL}/all-credentials`)
       
       if (!response.ok) {
         if (response.status === 401) {
           console.warn('[Dashboard] Unauthorized - session may not be synced yet, retrying...')
           // Retry once after a short delay
           await new Promise(resolve => setTimeout(resolve, 500))
-          const retryResponse = await fetch('http://localhost:3001/api/all-credentials')
+          const retryResponse = await fetch(`${API_BASE_URL}/all-credentials`)
           if (!retryResponse.ok) {
             throw new Error(`HTTP ${retryResponse.status}: ${retryResponse.statusText}`)
           }
@@ -333,7 +334,7 @@ export default function Dashboard() {
   const handleLogout = async () => {
     clearSession()
     clearSessionInStore()
-    fetch('http://localhost:3001/api/clear-session', { method: 'POST' }).catch(() => {})
+    fetch(`${API_BASE_URL}/clear-session`, { method: 'POST' }).catch(() => {})
     await clearExtensionSession()
     navigate('/')
   }

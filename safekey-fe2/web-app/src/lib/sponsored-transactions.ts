@@ -6,8 +6,7 @@
 import { Transaction } from '@mysten/sui/transactions'
 import { SuiClient, getFullnodeUrl } from '@mysten/sui/client'
 import { toBase64 } from '@mysten/sui/utils'
-
-const API_SERVER_URL = 'http://localhost:3001'
+import { API_SERVER_URL } from './api-config'
 
 function getRequiredEnvVar(key: string): string {
   let value: string | undefined

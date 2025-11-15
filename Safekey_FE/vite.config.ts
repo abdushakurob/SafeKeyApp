@@ -41,15 +41,6 @@ function copyExtensionFilesPlugin() {
         console.log('✓ Callback HTML moved to dist/extension/')
       }
 
-      // Move dashboard.html from src/pages/dashboard.html to dist/extension/dashboard.html
-      const dashboardSrc = path.resolve(__dirname, 'dist/extension/src/pages/dashboard.html')
-      const dashboardDest = path.resolve(__dirname, 'dist/extension/dashboard.html')
-      
-      if (fs.existsSync(dashboardSrc)) {
-        fs.copyFileSync(dashboardSrc, dashboardDest)
-        console.log('✓ Dashboard HTML moved to dist/extension/')
-      }
-
       // Copy oauth-handler.html from public to dist/extension/
       const oauthSrc = path.resolve(__dirname, 'public/oauth-handler.html')
       const oauthDest = path.resolve(__dirname, 'dist/extension/oauth-handler.html')
@@ -66,6 +57,15 @@ function copyExtensionFilesPlugin() {
       if (fs.existsSync(oauthJsSrc)) {
         fs.copyFileSync(oauthJsSrc, oauthJsDest)
         console.log('✓ OAuth handler JS copied to dist/extension/')
+      }
+
+      // Copy dashboard.html from public/extension to dist/extension/
+      const dashboardSrc = path.resolve(__dirname, 'public/extension/dashboard.html')
+      const dashboardDest = path.resolve(__dirname, 'dist/extension/dashboard.html')
+      
+      if (fs.existsSync(dashboardSrc)) {
+        fs.copyFileSync(dashboardSrc, dashboardDest)
+        console.log('✓ Dashboard HTML copied to dist/extension/')
       }
     },
   }
@@ -85,10 +85,9 @@ export default defineConfig(({ mode }) => {
           input: {
             popup: path.resolve(__dirname, 'src/popup/popup.html'),
             callback: path.resolve(__dirname, 'src/popup/callback.html'),
-            dashboard: path.resolve(__dirname, 'src/pages/dashboard.html'),
             background: path.resolve(__dirname, 'src/background/background.ts'),
             content: path.resolve(__dirname, 'src/content/content.ts'),
-            autofill: path.resolve(__dirname, 'src/content/autofill.ts'),
+            'pages/dashboard': path.resolve(__dirname, 'src/pages/dashboard.ts'),
           },
           output: {
             entryFileNames: '[name].js',

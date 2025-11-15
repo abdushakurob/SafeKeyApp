@@ -142,32 +142,12 @@ function populateWalletRegistry(): void {
   try {
     const wallets = getWallets().get()
     const enokiWallets = wallets.filter(isEnokiWallet)
-    console.log('[zkLogin] Found', enokiWallets.length, 'Enoki wallet(s)')
     for (const wallet of enokiWallets) {
       walletRegistry.set(wallet.provider, wallet)
-      console.log('[zkLogin] Registered wallet for provider:', wallet.provider)
     }
   } catch (error) {
     console.error('[zkLogin] Failed to populate wallet registry:', error)
   }
-}
-
-// Retry populating wallet registry (wallets might not be available immediately)
-export async function ensureWalletRegistryPopulated(maxRetries: number = 5, delayMs: number = 200): Promise<void> {
-  for (let i = 0; i < maxRetries; i++) {
-    populateWalletRegistry()
-    const wallets = getWallets().get()
-    const enokiWallets = wallets.filter(isEnokiWallet)
-    if (enokiWallets.length > 0) {
-      console.log('[zkLogin] ✅ Wallet registry populated with', enokiWallets.length, 'wallet(s)')
-      return
-    }
-    if (i < maxRetries - 1) {
-      console.log(`[zkLogin] No wallets found, retrying in ${delayMs}ms... (${i + 1}/${maxRetries})`)
-      await new Promise(resolve => setTimeout(resolve, delayMs))
-    }
-  }
-  console.warn('[zkLogin] ⚠️ Wallet registry still empty after', maxRetries, 'retries')
 }
 
 export function getEnokiWallet(provider: AuthProvider): EnokiWallet | undefined {
@@ -234,7 +214,9 @@ export async function prepareZkLoginSession(_provider: AuthProvider = 'google'):
       createdAt: Date.now(),
     }
     
-    await chrome.storage.session.set({ zklogin_session_prep: sessionData })
+    // Use session storage if available (Chrome), otherwise local (Firefox)
+    const storage = chrome.storage.session || chrome.storage.local
+    await storage.set({ zklogin_session_prep: sessionData })
     
     return {
       nonce,
@@ -270,7 +252,9 @@ export async function processOAuthJWT(idToken: string, provider: AuthProvider = 
     }
     
     // Retrieve the session preparation data (nonce, ephemeral keypair, etc.)
-    const sessionData = await chrome.storage.session.get('zklogin_session_prep')
+    // Use session storage if available (Chrome), otherwise local (Firefox)
+    const prepStorage = chrome.storage.session || chrome.storage.local
+    const sessionData = await prepStorage.get('zklogin_session_prep')
     if (!sessionData.zklogin_session_prep) {
       throw new Error('Session preparation data not found. Please start the zkLogin flow from the beginning.')
     }
@@ -419,7 +403,9 @@ export async function processOAuthJWT(idToken: string, provider: AuthProvider = 
     }
     
     // Clean up the temporary preparation data
-    await chrome.storage.session.remove('zklogin_session_prep')
+    // Use session storage if available (Chrome), otherwise local (Firefox)
+    const cleanupStorage = chrome.storage.session || chrome.storage.local
+    await cleanupStorage.remove('zklogin_session_prep')
     
     return address
   } catch (error) {
@@ -428,21 +414,301 @@ export async function processOAuthJWT(idToken: string, provider: AuthProvider = 
   }
 }
 
-export async function connectEnokiWallet(provider: AuthProvider): Promise<string> {
+/**
+ * Store Enoki session from current context's localStorage to chrome.storage.local
+ * This allows other extension contexts (dashboard, background) to access the session
+ * Call this in the popup after successful login
+ */
+/**
+ * Verify Enoki session is stored in chrome.storage.local
+ * Enoki stores its session directly in chrome.storage.local (not localStorage)
+ * Since chrome.storage.local is shared across contexts, we just need to verify it exists
+ */
+export async function storeEnokiSessionForSharing(): Promise<void> {
+  try {
+    console.log('[zkLogin] Verifying Enoki session in chrome.storage.local...')
+    
+    // Enoki stores its session directly in chrome.storage.local
+    // Check if the session keys exist
+    const allStorage = await chrome.storage.local.get(null)
+    const enokiKeys = Object.keys(allStorage).filter(key => 
+      key === 'key' || 
+      key === 'isEnabled' ||
+      key.includes('enoki') ||
+      key.includes('Enoki') ||
+      key.includes('wallet-standard') ||
+      key.includes('@mysten')
+    )
+    
+    if (enokiKeys.length > 0) {
+      console.log(`[zkLogin] ✅ Found ${enokiKeys.length} Enoki-related keys in chrome.storage.local:`, enokiKeys)
+      console.log('[zkLogin] Enoki session is already stored and accessible across contexts')
+    } else {
+      console.warn('[zkLogin] ⚠️ No Enoki session keys found in chrome.storage.local')
+      console.warn('[zkLogin] Enoki might not have stored its session yet')
+    }
+  } catch (error) {
+    console.error('[zkLogin] Failed to verify Enoki session in chrome.storage.local:', error)
+  }
+}
+
+/**
+ * Check if Enoki session exists in chrome.storage.local
+ * Enoki stores its session directly in chrome.storage.local (not localStorage)
+ * Since chrome.storage.local is shared across contexts, the session should be accessible
+ * We just need to ensure Enoki wallet is initialized and can read it
+ */
+async function checkEnokiSessionInStorage(): Promise<{ exists: boolean; keys: string[]; data?: any }> {
+  try {
+    console.log('[zkLogin] Checking for Enoki session in chrome.storage.local...')
+    
+    // Check for Enoki session keys in chrome.storage.local
+    // Based on user feedback, Enoki stores: 'key', 'isEnabled', 'oauth_access_token', 'oauth_id_access_token', etc.
+    const allStorage = await chrome.storage.local.get(null) // Get all keys
+    console.log('[zkLogin] All keys in chrome.storage.local:', Object.keys(allStorage))
+    
+    const enokiKeys = Object.keys(allStorage).filter(key => 
+      key === 'key' || 
+      key === 'isEnabled' ||
+      key === 'oauth_access_token' ||
+      key === 'oauth_id_token' ||
+      key === 'oauth_id_access_token' ||
+      key.includes('enoki') ||
+      key.includes('Enoki') ||
+      key.includes('wallet-standard') ||
+      key.includes('@mysten') ||
+      key.includes('wallet')
+    )
+    
+    if (enokiKeys.length > 0) {
+      console.log(`[zkLogin] Found ${enokiKeys.length} Enoki-related keys in chrome.storage.local:`, enokiKeys)
+      
+      // Log the actual values for debugging
+      const enokiData: Record<string, any> = {}
+      for (const key of enokiKeys) {
+        enokiData[key] = allStorage[key]
+        console.log(`[zkLogin] Key "${key}":`, typeof allStorage[key] === 'string' ? 
+          `${allStorage[key].substring(0, 50)}...` : allStorage[key])
+      }
+      
+      // Check if 'key' exists (this is likely Enoki's session key)
+      if (allStorage.key) {
+        console.log('[zkLogin] ✅ Found Enoki session key in chrome.storage.local')
+        return { exists: true, keys: enokiKeys, data: enokiData }
+      }
+      
+      // Check if 'isEnabled' exists (indicates Enoki is active)
+      if (allStorage.isEnabled) {
+        console.log('[zkLogin] ✅ Found Enoki isEnabled flag in chrome.storage.local')
+        return { exists: true, keys: enokiKeys, data: enokiData }
+      }
+      
+      return { exists: true, keys: enokiKeys, data: enokiData }
+    } else {
+      console.log('[zkLogin] No Enoki-related keys found in chrome.storage.local')
+    }
+    
+    return { exists: false, keys: [] }
+  } catch (error) {
+    console.warn('[zkLogin] Failed to check Enoki session in chrome.storage.local:', error)
+    return { exists: false, keys: [] }
+  }
+}
+
+/**
+ * Restore Enoki session from stored idToken without opening OAuth popup
+ * 
+ * IMPORTANT: Enoki wallets store sessions in browser localStorage, which is NOT shared
+ * across Chrome extension contexts (popup, dashboard, background). 
+ * 
+ * Strategy:
+ * 1. Try to copy Enoki session from popup's localStorage (via chrome.storage)
+ * 2. If that fails, verify idToken is valid
+ * 3. Note: We cannot directly restore Enoki's session from idToken alone
+ *    because Enoki's internal session structure is not exposed
+ */
+async function restoreEnokiSessionFromIdToken(
+  wallet: EnokiWallet,
+  provider: AuthProvider,
+  idToken: string
+): Promise<boolean> {
+  try {
+    console.log(`[zkLogin] Attempting to restore Enoki session from stored idToken for ${provider}...`)
+    
+    // Step 1: Check if Enoki session exists in chrome.storage.local
+    // Enoki stores its session directly in chrome.storage.local (shared across contexts)
+    const sessionCheck = await checkEnokiSessionInStorage()
+    if (sessionCheck.exists) {
+      // Session exists in storage, try to get it from wallet
+      // The wallet should be able to read it since chrome.storage.local is shared
+      // But we might need to trigger the wallet to read from storage
+      try {
+        // Try calling getSession - this should trigger Enoki to read from chrome.storage.local
+        const sessionFeature = wallet.features['enoki:getSession']
+        if (sessionFeature?.getSession) {
+          const session = await sessionFeature.getSession()
+          if (session && typeof session === 'object' && 'address' in session) {
+            const sessionAddress = (session as Record<string, any>).address
+            if (sessionAddress) {
+              console.log('[zkLogin] ✅ Session found in chrome.storage.local and accessible via wallet')
+              return true
+            }
+          }
+        }
+        
+        // If getSession didn't work, try using standard:accounts
+        // This might work if Enoki exposes accounts via wallet-standard
+        console.log('[zkLogin] Session exists in storage but getSession returned nothing')
+        console.log('[zkLogin] Trying standard:accounts to get account from wallet...')
+        
+        try {
+          const accountsFeature = (wallet.features as any)['standard:accounts']
+          if (accountsFeature?.getAccounts) {
+            const accounts = await accountsFeature.getAccounts()
+            console.log('[zkLogin] standard:accounts returned:', accounts)
+            if (accounts && accounts.length > 0) {
+              const account = accounts[0]
+              if (account && account.address) {
+                console.log('[zkLogin] ✅ Found account via standard:accounts:', account.address)
+                // Account found - session is active
+                return true
+              }
+            } else {
+              console.log('[zkLogin] standard:accounts returned empty array')
+            }
+          } else {
+            console.log('[zkLogin] Wallet does not support standard:accounts feature')
+          }
+        } catch (accountsError) {
+          console.warn('[zkLogin] standard:accounts failed:', accountsError)
+        }
+        
+        // Try to manually trigger Enoki to read from storage
+        // Enoki might need to be re-initialized or the wallet instance needs to be refreshed
+        console.log('[zkLogin] Attempting to manually trigger Enoki to read from storage...')
+        const walletAny = wallet as any
+        
+        // Check if wallet has internal methods to load from storage
+        if (walletAny._loadFromStorage || walletAny.loadFromStorage || walletAny._initialize) {
+          try {
+            console.log('[zkLogin] Found internal load methods, attempting to call...')
+            await walletAny._loadFromStorage?.() || walletAny.loadFromStorage?.() || walletAny._initialize?.()
+            
+            // Wait a bit for async operations
+            await new Promise(resolve => setTimeout(resolve, 500))
+            
+            // Check session again
+            const sessionFeature2 = wallet.features['enoki:getSession']
+            if (sessionFeature2?.getSession) {
+              const session2 = await sessionFeature2.getSession()
+              if (session2 && typeof session2 === 'object' && 'address' in session2) {
+                const sessionAddress2 = (session2 as Record<string, any>).address
+                if (sessionAddress2) {
+                  console.log('[zkLogin] ✅ Session restored after manual load')
+                  return true
+                }
+              }
+            }
+          } catch (loadError) {
+            console.warn('[zkLogin] Manual load failed:', loadError)
+          }
+        }
+        
+        // Try to access wallet's internal state or trigger a refresh
+        // Note: This is a workaround - Enoki SDK might not expose this
+        
+        // Check if wallet has any methods to refresh/restore session
+        if (walletAny._refreshSession || walletAny.refreshSession) {
+          try {
+            console.log('[zkLogin] Trying to refresh wallet session...')
+            await walletAny._refreshSession?.() || walletAny.refreshSession?.()
+            
+            // Check session again
+            const sessionFeature2 = wallet.features['enoki:getSession']
+            if (sessionFeature2?.getSession) {
+              const session2 = await sessionFeature2.getSession()
+              if (session2 && typeof session2 === 'object' && 'address' in session2) {
+                const sessionAddress2 = (session2 as Record<string, any>).address
+                if (sessionAddress2) {
+                  console.log('[zkLogin] ✅ Session restored after refresh')
+                  return true
+                }
+              }
+            }
+          } catch (refreshError) {
+            console.warn('[zkLogin] Refresh failed:', refreshError)
+          }
+        }
+        
+        // If nothing worked, the session might not be accessible
+        // This is a limitation - Enoki might need to be initialized in the same context
+        console.warn('[zkLogin] ⚠️ Cannot restore session - Enoki wallet might need to be initialized in popup context')
+      } catch (e) {
+        console.warn('[zkLogin] Session exists in storage but wallet cannot access it:', e)
+        // Continue to next step
+      }
+    }
+    
+    // Step 2: Verify idToken is still valid
+    try {
+      const addressResponse = await fetch(`${ENOKI_API_BASE}/v1/zklogin`, {
+        method: 'GET',
+        headers: {
+          'Authorization': `Bearer ${enokiApiKey}`,
+          'zklogin-jwt': idToken,
+        },
+      })
+      
+      if (!addressResponse.ok) {
+        console.warn(`[zkLogin] idToken validation failed: ${addressResponse.status}`)
+        return false
+      }
+      
+      const addressData = await addressResponse.json()
+      const address = addressData.data?.address
+      
+      if (!address) {
+        console.warn('[zkLogin] No address returned from Enoki API')
+        return false
+      }
+      
+      console.log(`[zkLogin] ✅ idToken is valid, address: ${address}`)
+      // Note: We have a valid idToken, but we cannot restore Enoki's session from it
+      // because Enoki's internal session structure is not exposed by the SDK
+      // The session must be restored in the same context where it was created
+      
+      return false
+    } catch (apiError) {
+      console.warn('[zkLogin] Failed to validate idToken with Enoki API:', apiError)
+      return false
+    }
+  } catch (error) {
+    console.error('[zkLogin] Failed to restore Enoki session:', error)
+    return false
+  }
+}
+
+export async function connectEnokiWallet(
+  provider: AuthProvider,
+  idToken?: string
+): Promise<string> {
   try {
     const wallet = getEnokiWallet(provider)
     if (!wallet) {
       throw new Error(`Enoki wallet for ${provider} not found`)
     }
     
-    // Try enoki:getSession first
+    // Step 1: Check if session already exists (no popup needed)
+    // Try multiple methods to check for active session
     try {
+      // Method 1: Try enoki:getSession
       const sessionFeature = wallet.features['enoki:getSession']
       if (sessionFeature && typeof sessionFeature.getSession === 'function') {
         const session = await sessionFeature.getSession()
         if (session && typeof session === 'object' && 'address' in session) {
           const sessionAddress = (session as Record<string, any>).address
           if (sessionAddress) {
+            console.log('[zkLogin] ✅ Session already active (via enoki:getSession), no popup needed')
             return sessionAddress as string
           }
         }
@@ -451,7 +717,176 @@ export async function connectEnokiWallet(provider: AuthProvider): Promise<string
       // Continue to next method
     }
     
-    // Try standard:connect
+    // Method 2: Try standard:accounts (wallet-standard)
+    try {
+      const accountsFeature = (wallet.features as any)['standard:accounts']
+      if (accountsFeature && typeof accountsFeature.getAccounts === 'function') {
+        const accounts = await accountsFeature.getAccounts()
+        if (accounts && accounts.length > 0) {
+          const account = accounts[0]
+          if (account && account.address) {
+            console.log('[zkLogin] ✅ Session already active (via standard:accounts), no popup needed')
+            return account.address
+          }
+        }
+      }
+    } catch (e) {
+      // Continue to restoration
+    }
+    
+    // Step 2: If no session but idToken provided, try to restore silently
+    if (idToken) {
+      console.log('[zkLogin] No active session found, attempting to restore from stored idToken...')
+      const restored = await restoreEnokiSessionFromIdToken(wallet, provider, idToken)
+      
+      if (restored) {
+        // Check session again after restoration
+        try {
+          const sessionFeature = wallet.features['enoki:getSession']
+          if (sessionFeature?.getSession) {
+            const session = await sessionFeature.getSession()
+            if (session && typeof session === 'object' && 'address' in session) {
+              const sessionAddress = (session as Record<string, any>).address
+              if (sessionAddress) {
+                console.log('[zkLogin] ✅ Session restored successfully, no popup needed')
+                return sessionAddress as string
+              }
+            }
+          }
+        } catch (e) {
+          // Continue to connect
+        }
+      }
+    }
+    
+    // Step 3: If no idToken provided, try loading from storage
+    if (!idToken) {
+      try {
+        const storedSession = await loadZkLoginSessionFromStorage()
+        if (storedSession?.idToken && storedSession.provider === provider) {
+          console.log('[zkLogin] Found stored session, attempting to restore...')
+          const restored = await restoreEnokiSessionFromIdToken(wallet, provider, storedSession.idToken)
+          
+          if (restored) {
+            try {
+              const sessionFeature = wallet.features['enoki:getSession']
+              if (sessionFeature?.getSession) {
+                const session = await sessionFeature.getSession()
+                if (session && typeof session === 'object' && 'address' in session) {
+                  const sessionAddress = (session as Record<string, any>).address
+                  if (sessionAddress) {
+                    console.log('[zkLogin] ✅ Session restored from storage, no popup needed')
+                    return sessionAddress as string
+                  }
+                }
+              }
+            } catch (e) {
+              // Continue to connect
+            }
+          }
+        }
+      } catch (e) {
+        console.warn('[zkLogin] Could not load session from storage:', e)
+      }
+    }
+    
+    // Step 4: Only if no session exists and restoration failed
+    // IMPORTANT: We should NEVER call standard:connect from dashboard/background contexts
+    // because it will open an OAuth popup, which Google blocks for extensions (localhost redirect URI)
+    
+    // Check if we're in popup context (where OAuth is allowed)
+    const isPopupContext = typeof window !== 'undefined' && (
+      window.location.pathname.includes('popup.html') ||
+      window.location.pathname.includes('popup') ||
+      window.location.href.includes('popup')
+    )
+    
+    // Check if we have a stored session (meaning user is logged in)
+    const storedSession = await loadZkLoginSessionFromStorage()
+    const hasStoredSession = idToken || storedSession?.idToken
+    
+    // Check if Enoki session exists in chrome.storage.local
+    const sessionCheck = await checkEnokiSessionInStorage()
+    const hasEnokiSessionInStorage = sessionCheck.exists
+    
+    // CRITICAL: standard:connect ALWAYS opens a popup, even if session exists in storage.
+    // Enoki wallet instances in different contexts (popup vs dashboard) don't share session state.
+    // The session exists in chrome.storage.local, but the wallet instance can't read it.
+    // 
+    // SOLUTION: We need to manually restore the session by setting Enoki's internal state
+    // using the stored oauth_id_token and oauth_access_token.
+    
+    if (hasStoredSession || hasEnokiSessionInStorage) {
+      // Session exists in storage - try to manually restore it
+      console.log('[zkLogin] Session exists in storage, attempting manual restoration...')
+      
+      // Get the stored tokens from chrome.storage.local
+      const allStorage = await chrome.storage.local.get(null)
+      const oauthIdToken = allStorage.oauth_id_token
+      const oauthAccessToken = allStorage.oauth_access_token
+      
+      if (oauthIdToken) {
+        console.log('[zkLogin] Found oauth_id_token in storage, attempting to restore session...')
+        
+        // Try to manually set Enoki's internal session state
+        // Enoki wallet might have internal methods to restore from tokens
+        const walletAny = wallet as any
+        
+        // Check if wallet has methods to restore session from tokens
+        if (walletAny._restoreSession || walletAny.restoreSession || walletAny._setSession) {
+          try {
+            console.log('[zkLogin] Found restore methods, attempting to restore...')
+            if (walletAny._restoreSession) {
+              await walletAny._restoreSession({ idToken: oauthIdToken, accessToken: oauthAccessToken })
+            } else if (walletAny.restoreSession) {
+              await walletAny.restoreSession({ idToken: oauthIdToken, accessToken: oauthAccessToken })
+            } else if (walletAny._setSession) {
+              await walletAny._setSession({ idToken: oauthIdToken, accessToken: oauthAccessToken })
+            }
+            
+            // Wait a bit for session to be restored
+            await new Promise(resolve => setTimeout(resolve, 500))
+            
+            // Check if session is now available
+            const sessionFeature = wallet.features['enoki:getSession']
+            if (sessionFeature?.getSession) {
+              const session = await sessionFeature.getSession()
+              if (session && typeof session === 'object' && 'address' in session) {
+                const sessionAddress = (session as Record<string, any>).address
+                if (sessionAddress) {
+                  console.log('[zkLogin] ✅ Session restored manually from stored tokens')
+                  return sessionAddress as string
+                }
+              }
+            }
+          } catch (restoreError) {
+            console.warn('[zkLogin] Manual restore failed:', restoreError)
+          }
+        }
+        
+        // If manual restore didn't work, we need to use the stored idToken
+        // to get the address and construct a minimal session
+        // But Enoki needs the full session structure, not just the address
+        console.warn('[zkLogin] ⚠️ Cannot restore Enoki session - wallet does not expose restore methods')
+        console.warn('[zkLogin] Session exists in storage but wallet cannot access it in this context')
+        throw new Error(
+          'Enoki session exists in storage but cannot be restored in dashboard context. ' +
+          'Please perform this action from the extension popup where the session is active.'
+        )
+      }
+    }
+    
+    // No session in storage - only allow connect in popup context
+    if (!isPopupContext) {
+      throw new Error(
+        'No Enoki session found. Please login from the extension popup first. ' +
+        'OAuth popups cannot be opened from dashboard/background contexts due to Google security restrictions.'
+      )
+    }
+    
+    console.warn('[zkLogin] ⚠️ No session found. Opening OAuth popup for first login...')
+    console.warn('[zkLogin] This should only happen on first login in popup context.')
+    
     try {
       const connectFeature = wallet.features['standard:connect']
       if (!connectFeature) {
@@ -464,11 +899,24 @@ export async function connectEnokiWallet(provider: AuthProvider): Promise<string
       )
       
       await Promise.race([connectPromise, timeoutPromise])
+      
+      // After connect, check session again
+      const sessionFeature = wallet.features['enoki:getSession']
+      if (sessionFeature?.getSession) {
+        const session = await sessionFeature.getSession()
+        if (session && typeof session === 'object' && 'address' in session) {
+          const sessionAddress = (session as Record<string, any>).address
+          if (sessionAddress) {
+            return sessionAddress as string
+          }
+        }
+      }
     } catch (connectError) {
-      // Continue to next method
+      console.error('[zkLogin] Failed to connect wallet:', connectError)
+      throw new Error(`Failed to connect ${provider} wallet: ${connectError instanceof Error ? connectError.message : String(connectError)}`)
     }
     
-    // Try getting metadata
+    // Fallback: Try getting metadata
     try {
       const metadataFeature = wallet.features['enoki:getMetadata']
       if (metadataFeature && typeof metadataFeature.getMetadata === 'function') {
@@ -484,9 +932,8 @@ export async function connectEnokiWallet(provider: AuthProvider): Promise<string
       // Continue to fallback
     }
     
-    // Fallback
-    const fallbackAddress = `0x${provider.padEnd(64, '0')}`
-    return fallbackAddress
+    // Final fallback
+    throw new Error(`Failed to connect ${provider} wallet: No session or address available`)
   } catch (error) {
     console.error(`[zkLogin] Failed to connect ${provider} wallet:`, error)
     throw error

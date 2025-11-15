@@ -1,50 +1,45 @@
 {
-  "name": "safekey_fe",
+  "name": "safekey-web-app",
   "private": true,
   "version": "0.0.0",
   "type": "module",
   "scripts": {
     "dev": "vite",
+    "server": "tsx server.ts",
+    "dev:all": "concurrently \"npm run dev\" \"npm run server\"",
     "build": "tsc -b && vite build",
-    "build:extension": "tsc -b && vite build --mode extension",
-    "build:chrome": "npm run build:extension",
-    "build:firefox": "npm run build:extension",
-    "dev:extension": "vite --mode extension",
-    "lint": "eslint .",
     "preview": "vite preview",
-    "server": "node server.js"
+    "lint": "eslint ."
   },
   "dependencies": {
     "@mysten/dapp-kit": "^0.19.8",
     "@mysten/enoki": "^0.12.10",
     "@mysten/seal": "^0.9.3",
-    "@mysten/sui.js": "^0.54.1",
-    "@mysten/wallet-standard": "^0.19.6",
-    "@mysten/walrus": "^0.8.3",
+    "@mysten/sui": "^1.0.0",
     "@tanstack/react-query": "^5.90.7",
-    "fs": "^0.0.1-security",
-    "js-sha256": "^0.11.1",
-    "path": "^0.12.7",
+    "cors": "^2.8.5",
+    "dotenv": "^17.2.3",
+    "express": "^5.1.0",
     "react": "^19.1.1",
     "react-dom": "^19.1.1",
-    "tweetnacl": "^1.0.3",
-    "url": "^0.11.4"
+    "react-router-dom": "^6.28.0"
   },
   "devDependencies": {
     "@eslint/js": "^9.36.0",
-    "@types/chrome": "^0.1.27",
+    "@types/cors": "^2.8.19",
+    "@types/express": "^5.0.5",
     "@types/node": "^24.10.0",
     "@types/react": "^19.1.16",
     "@types/react-dom": "^19.1.9",
     "@vitejs/plugin-react": "^5.0.4",
-    "copy-webpack-plugin": "^13.0.1",
+    "concurrently": "^9.2.1",
     "eslint": "^9.36.0",
     "eslint-plugin-react-hooks": "^5.2.0",
     "eslint-plugin-react-refresh": "^0.4.22",
     "globals": "^16.4.0",
+    "tsx": "^4.20.6",
     "typescript": "~5.9.3",
     "typescript-eslint": "^8.45.0",
-    "vite": "^7.1.7",
-    "webextension-polyfill": "^0.12.0"
+    "vite": "^7.1.7"
   }
 }

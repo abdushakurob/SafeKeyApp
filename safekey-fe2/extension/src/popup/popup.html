@@ -1,0 +1,188 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>SafeKey</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Satoshi:wght@400;500;700;900&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+    <style>
+      * {
+        margin: 0;
+        padding: 0;
+        box-sizing: border-box;
+      }
+
+      body {
+        width: 380px;
+        min-height: 200px;
+        background: #0a0a0a;
+        color: #ffffff;
+        font-family: 'Satoshi', -apple-system, BlinkMacSystemFont, sans-serif;
+        padding: 0;
+      }
+
+      .header {
+        padding: 1.25rem 1.5rem;
+        border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+      }
+
+      .logo {
+        font-size: 1.25rem;
+        font-weight: 700;
+        letter-spacing: -0.02em;
+        color: #ffffff;
+      }
+
+      .content {
+        padding: 1.5rem;
+      }
+
+      .status-card {
+        background: rgba(255, 255, 255, 0.03);
+        border: 1px solid rgba(255, 255, 255, 0.1);
+        border-radius: 0.75rem;
+        padding: 1.25rem;
+        margin-bottom: 1rem;
+      }
+
+      .status-label {
+        font-family: 'JetBrains Mono', monospace;
+        font-size: 0.75rem;
+        color: rgba(255, 255, 255, 0.5);
+        margin-bottom: 0.5rem;
+        letter-spacing: 0.05em;
+      }
+
+      .status-value {
+        font-size: 0.95rem;
+        font-weight: 500;
+        color: #bfff0b;
+        margin-bottom: 0.75rem;
+      }
+
+      .status-value.disconnected {
+        color: rgba(255, 255, 255, 0.6);
+      }
+
+      .address {
+        font-family: 'JetBrains Mono', monospace;
+        font-size: 0.8rem;
+        color: rgba(255, 255, 255, 0.7);
+        word-break: break-all;
+        background: rgba(255, 255, 255, 0.02);
+        padding: 0.5rem;
+        border-radius: 0.5rem;
+        border: 1px solid rgba(255, 255, 255, 0.05);
+      }
+
+      .actions {
+        display: flex;
+        flex-direction: column;
+        gap: 0.75rem;
+      }
+
+      button {
+        width: 100%;
+        padding: 0.875rem 1.5rem;
+        border: none;
+        border-radius: 0.5rem;
+        font-size: 0.95rem;
+        font-weight: 500;
+        cursor: pointer;
+        transition: all 0.3s ease;
+        font-family: 'Satoshi', sans-serif;
+      }
+
+      .btn-primary {
+        background: #bfff0b;
+        color: #0a0a0a;
+        font-weight: 700;
+      }
+
+      .btn-primary:hover {
+        transform: translateY(-2px);
+        box-shadow: 0 4px 12px rgba(191, 255, 11, 0.3);
+      }
+
+      .btn-secondary {
+        background: transparent;
+        border: 1px solid rgba(191, 255, 11, 0.5);
+        color: #bfff0b;
+      }
+
+      .btn-secondary:hover {
+        background: rgba(191, 255, 11, 0.1);
+        border-color: #bfff0b;
+      }
+
+      .btn-tertiary {
+        background: transparent;
+        border: 1px solid rgba(255, 255, 255, 0.2);
+        color: rgba(255, 255, 255, 0.8);
+      }
+
+      .btn-tertiary:hover {
+        background: rgba(255, 255, 255, 0.05);
+        border-color: rgba(255, 255, 255, 0.3);
+      }
+
+      .empty-state {
+        text-align: center;
+        padding: 2rem 1rem;
+        color: rgba(255, 255, 255, 0.6);
+      }
+
+      .empty-state p {
+        font-size: 0.9rem;
+        line-height: 1.6;
+        margin-bottom: 1rem;
+      }
+
+      .api-status {
+        font-family: 'JetBrains Mono', monospace;
+        font-size: 0.7rem;
+        padding: 0.25rem 0.5rem;
+        border-radius: 0.25rem;
+        margin-top: 0.5rem;
+        display: inline-block;
+      }
+
+      .api-status.connected {
+        background: rgba(191, 255, 11, 0.2);
+        color: #bfff0b;
+      }
+
+      .api-status.disconnected {
+        background: rgba(255, 107, 107, 0.2);
+        color: #ff6b6b;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="header">
+      <div class="logo">SafeKey</div>
+    </div>
+    <div class="content">
+      <div id="statusCard" class="status-card">
+        <div class="status-label">/// STATUS</div>
+        <div id="statusValue" class="status-value">Connected</div>
+        <div id="apiStatus" class="api-status">API: Checking...</div>
+        <div id="addressContainer" style="display: none;">
+          <div class="status-label" style="margin-top: 0.75rem; margin-bottom: 0.5rem;">/// ADDRESS</div>
+          <div id="address" class="address"></div>
+        </div>
+      </div>
+      <div id="emptyState" class="empty-state" style="display: none;">
+        <p>Not connected to web app</p>
+        <p style="font-size: 0.8rem; color: rgba(255, 255, 255, 0.5);">Open the web app to login and start using SafeKey</p>
+      </div>
+      <div id="actions" class="actions">
+        <button id="openDashboard" class="btn-primary">Open Dashboard</button>
+        <button id="openWebApp" class="btn-secondary">Open Web App</button>
+      </div>
+    </div>
+    <script type="module" src="./popup.js"></script>
+  </body>
+</html>

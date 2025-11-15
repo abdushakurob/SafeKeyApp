@@ -12,10 +12,7 @@ import {
   loadZkLoginSessionFromStorage,
   processOAuthJWT,
 } from '../lib/zklogin'
-import { initializeSeal, getOrDeriveKM } from '../lib/seal'
-import { initializeSuiClient, getOrCreateVault, getCredentials, saveCredentials } from '../lib/sui'
-import { connectEnokiWallet } from '../lib/zklogin'
-import { generateSessionNonce, deriveKS } from '../lib/crypto'
+import { initializeSeal } from '../lib/seal'
 
 // In-memory state for the session
 let sessionState: {
@@ -38,24 +35,15 @@ chrome.runtime.onMessage.addListener((request, _sender, sendResponse) => {
     })
   }
 
-
-  // Derive KM from zkLogin (called when zkLogin completes)
-  if (request.type === 'DERIVE_KM_FROM_ZKLOGIN') {
-    ;(async () => {
-      try {
-        const km = await getOrDeriveKM()
-        if (km) {
-          sessionState.KM = km
-          sessionState.isLocked = false
-          sendResponse({ success: true, KM: km, message: 'KM derived and session initialized' })
-        } else {
-          sendResponse({ success: false, error: 'Failed to derive KM' })
-        }
-      } catch (error) {
-        console.error('[BG] Failed to derive KM:', error)
-        sendResponse({ success: false, error: String(error) })
-      }
-    })()
+  // Initialize SafeKey with master key
+  if (request.type === 'INIT_SESSION' && request.KM) {
+    try {
+      sessionState.KM = request.KM
+      sessionState.isLocked = false
+      sendResponse({ success: true, message: 'Session initialized' })
+    } catch (error) {
+      sendResponse({ success: false, error: String(error) })
+    }
     return true
   }
 
@@ -288,186 +276,8 @@ chrome.runtime.onMessage.addListener((request, _sender, sendResponse) => {
       try {
         logoutZkLogin()
         await clearZkLoginFromStorage()
-        // Clear session state
-        sessionState.KM = undefined
-        sessionState.KS = undefined
-        sessionState.sessionNonce = undefined
-        sessionState.isLocked = true
         sendResponse({ success: true, message: 'Logged out from zkLogin' })
       } catch (error) {
-        sendResponse({ success: false, error: String(error) })
-      }
-    })()
-    return true
-  }
-
-  // Content script: Get credentials for a domain (autofill)
-  if (request.type === 'GET_CREDENTIALS' && request.domain) {
-    ;(async () => {
-      try {
-        if (sessionState.isLocked || !sessionState.KM) {
-          sendResponse({ success: false, error: 'Session is locked. Please login first.' })
-          return
-        }
-
-        // Hash domain
-        const domainHash = await hashDomain(request.domain, sessionState.KM)
-        const domainHashBytes = Uint8Array.from(atob(domainHash), c => c.charCodeAt(0))
-
-        // Get vault
-        const vaultId = await getOrCreateVault()
-
-        // Get credentials from blockchain
-        const creds = await getCredentials(vaultId, domainHashBytes)
-
-        if (!creds) {
-          sendResponse({ success: true, credentials: null })
-          return
-        }
-
-        // Derive session key if not already derived
-        if (!sessionState.KS || !sessionState.sessionNonce) {
-          sessionState.sessionNonce = generateSessionNonce()
-          sessionState.KS = await deriveKS(sessionState.KM, sessionState.sessionNonce)
-        }
-
-        // Decrypt credentials
-        const encryptedData = btoa(String.fromCharCode(...creds.data))
-        const decrypted = await decrypt(encryptedData, sessionState.KS)
-
-        // Parse decrypted JSON (username, password, etc.)
-        let credentials
-        try {
-          credentials = JSON.parse(decrypted)
-        } catch {
-          // If not JSON, assume old format
-          credentials = { password: decrypted }
-        }
-
-        sendResponse({ 
-          success: true, 
-          credentials: {
-            username: credentials.username || '',
-            password: credentials.password || decrypted,
-            domain: request.domain,
-          }
-        })
-      } catch (error) {
-        console.error('[BG] Failed to get credentials:', error)
-        sendResponse({ success: false, error: String(error) })
-      }
-    })()
-    return true
-  }
-
-  // Content script: Save credentials for a domain
-  if (request.type === 'SAVE_CREDENTIALS' && request.domain && request.username && request.password) {
-    ;(async () => {
-      try {
-        if (sessionState.isLocked || !sessionState.KM) {
-          sendResponse({ success: false, error: 'Session is locked. Please login first.' })
-          return
-        }
-
-        // Hash domain
-        const domainHash = await hashDomain(request.domain, sessionState.KM)
-        const domainHashBytes = Uint8Array.from(atob(domainHash), c => c.charCodeAt(0))
-
-        // Derive session key if not already derived
-        if (!sessionState.KS || !sessionState.sessionNonce) {
-          sessionState.sessionNonce = generateSessionNonce()
-          sessionState.KS = await deriveKS(sessionState.KM, sessionState.sessionNonce)
-        }
-
-        // Encrypt credentials
-        const credentialsData = JSON.stringify({
-          username: request.username,
-          password: request.password,
-          domain: request.domain,
-        })
-        const encrypted = await encrypt(credentialsData, sessionState.KS)
-
-        // Parse encrypted data (format: "iv.ciphertext")
-        const [ivB64, ciphertextB64] = encrypted.split('.')
-        const encryptedBytes = Uint8Array.from(atob(ciphertextB64), c => c.charCodeAt(0))
-        const entryNonceBytes = Uint8Array.from(atob(ivB64), c => c.charCodeAt(0))
-        const sessionNonceBytes = Uint8Array.from(atob(sessionState.sessionNonce), c => c.charCodeAt(0))
-
-        // Get vault
-        const vaultId = await getOrCreateVault()
-
-        // Save to blockchain
-        await saveCredentials(
-          vaultId,
-          domainHashBytes,
-          encryptedBytes,
-          entryNonceBytes,
-          sessionNonceBytes
-        )
-
-        // Track domain in local storage
-        const stored = await chrome.storage.local.get('safekey_domains')
-        const domains = stored.safekey_domains || []
-        if (!domains.includes(domainHash)) {
-          domains.push(domainHash)
-          await chrome.storage.local.set({ safekey_domains: domains })
-        }
-
-        sendResponse({ success: true, message: 'Credentials saved' })
-      } catch (error) {
-        console.error('[BG] Failed to save credentials:', error)
-        sendResponse({ success: false, error: String(error) })
-      }
-    })()
-    return true
-  }
-
-  // Initialize session with KM and derive KS
-  if (request.type === 'INIT_SESSION' && request.KM) {
-    ;(async () => {
-      try {
-        sessionState.KM = request.KM
-        sessionState.sessionNonce = generateSessionNonce()
-        sessionState.KS = await deriveKS(request.KM, sessionState.sessionNonce)
-        sessionState.isLocked = false
-        
-        // Initialize Sui client
-        initializeSuiClient('testnet')
-        
-        sendResponse({ success: true, message: 'Session initialized' })
-      } catch (error) {
-        sendResponse({ success: false, error: String(error) })
-      }
-    })()
-    return true
-  }
-
-  // Get or create vault (handles wallet interactions in background context)
-  if (request.type === 'GET_OR_CREATE_VAULT') {
-    ;(async () => {
-      try {
-        if (sessionState.isLocked || !sessionState.KM) {
-          sendResponse({ success: false, error: 'Session is locked. Please login first.' })
-          return
-        }
-        
-        // Ensure Enoki wallet is connected before signing transactions
-        const provider = getProvider()
-        if (provider) {
-          console.log('[BG] Ensuring Enoki wallet is connected for provider:', provider)
-          try {
-            await connectEnokiWallet(provider)
-            console.log('[BG] ✅ Enoki wallet connected')
-          } catch (connectError) {
-            console.warn('[BG] Wallet connection warning (may already be connected):', connectError)
-            // Continue anyway - wallet might already be connected
-          }
-        }
-        
-        const vaultId = await getOrCreateVault()
-        sendResponse({ success: true, vaultId })
-      } catch (error) {
-        console.error('[BG] Failed to get or create vault:', error)
         sendResponse({ success: false, error: String(error) })
       }
     })()
@@ -506,21 +316,13 @@ chrome.runtime.onInstalled.addListener(() => {
     initializeEnokiFlow(enokiApiKey, providers || undefined)
     sessionState.enokiInitialized = true
     
-    // Initialize SEAL
+    // Initialize SEAL (Walrus removed from this build)
     try {
       const network = 'testnet' // TODO: Make this configurable
       initializeSeal(network)
       console.log('[BG] ✅ SEAL initialized')
     } catch (error) {
       console.error('[BG] Failed to initialize SEAL:', error)
-    }
-
-    // Initialize Sui client
-    try {
-      initializeSuiClient('testnet')
-      console.log('[BG] ✅ Sui client initialized')
-    } catch (error) {
-      console.error('[BG] Failed to initialize Sui client:', error)
     }
     
     // Load existing zkLogin session from storage

@@ -42,10 +42,17 @@ console.log(`[API] Enoki client initialized for network: ${process.env.VITE_SUI_
 // Content scripts run in web page context, so they use the page's origin, not extension origin
 const isDevelopment = process.env.NODE_ENV !== 'production'
 
+// Get allowed origins from environment variable (comma-separated list)
+// Example: ALLOWED_ORIGINS=https://safekeyapp.vercel.app,https://app.example.com
+const allowedOriginsEnv = process.env.ALLOWED_ORIGINS || ''
+const allowedOrigins = allowedOriginsEnv
+  .split(',')
+  .map(origin => origin.trim())
+  .filter(origin => origin.length > 0)
+
 app.use(cors({
   origin: (origin, callback) => {
     // In development, allow all origins (needed for extension content scripts)
-    // Only log CORS errors, not every successful request
     if (isDevelopment) {
       return callback(null, true)
     }
@@ -56,17 +63,31 @@ app.use(cors({
       return callback(null, true)
     }
     
-    // Allow localhost origins
+    // Allow localhost origins (for local testing)
     if (origin.startsWith('http://localhost:') || origin.startsWith('http://127.0.0.1:')) {
       return callback(null, true)
     }
+    
     // Allow extension origins (case-insensitive check)
     const lowerOrigin = origin.toLowerCase()
     if (lowerOrigin.startsWith('chrome-extension://') || lowerOrigin.startsWith('moz-extension://')) {
       return callback(null, true)
     }
+    
+    // Check against allowed origins from environment variable
+    if (allowedOrigins.length > 0) {
+      const isAllowed = allowedOrigins.some(allowed => {
+        // Exact match or subdomain match
+        return origin === allowed || origin.startsWith(allowed)
+      })
+      if (isAllowed) {
+        return callback(null, true)
+      }
+    }
+    
     // Reject other origins
     console.warn('[CORS] Rejecting origin:', origin)
+    console.warn('[CORS] Allowed origins:', allowedOrigins.length > 0 ? allowedOrigins.join(', ') : 'none configured')
     callback(new Error(`Not allowed by CORS: ${origin}`))
   },
   credentials: true,
@@ -832,7 +853,18 @@ app.post('/api/execute', async (req, res) => {
  */
 export function startApiServer(): void {
   app.listen(PORT, () => {
-    console.log(`[API Server] Running on http://localhost:${PORT}`)
+    console.log(`🚀 API Server running on port ${PORT}`)
+    console.log(`📡 Health check: http://localhost:${PORT}/api/health`)
+    if (!isDevelopment) {
+      if (allowedOrigins.length > 0) {
+        console.log(`🌐 CORS: Allowing origins: ${allowedOrigins.join(', ')}`)
+      } else {
+        console.warn(`⚠️  CORS: No ALLOWED_ORIGINS configured. Only localhost and extensions are allowed.`)
+        console.warn(`   Set ALLOWED_ORIGINS environment variable (comma-separated) to allow your frontend domain.`)
+      }
+    } else {
+      console.log(`🔓 CORS: Development mode - allowing all origins`)
+    }
   })
 }
 

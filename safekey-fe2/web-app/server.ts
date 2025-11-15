@@ -67,6 +67,14 @@ if (missingVars.length > 0) {
 
 console.log('✅ All required environment variables loaded successfully')
 
+// Optional: CORS configuration for production
+if (process.env.ALLOWED_ORIGINS) {
+  console.log(`🌐 CORS: ALLOWED_ORIGINS configured: ${process.env.ALLOWED_ORIGINS}`)
+} else {
+  console.log(`ℹ️  CORS: ALLOWED_ORIGINS not set (optional). Set it to allow your frontend domain in production.`)
+  console.log(`   Example: ALLOWED_ORIGINS=https://safekeyapp.vercel.app,https://app.example.com`)
+}
+
 // Use dynamic import to ensure dotenv.config() runs first
 const { startApiServer } = await import('./src/server/api-server.js')
 

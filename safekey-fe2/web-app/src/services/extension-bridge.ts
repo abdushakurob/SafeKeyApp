@@ -19,6 +19,11 @@ export interface BlockchainResponse {
     username: string
     password: string
   }
+  credentials?: {
+    domain: string
+    username: string
+    password: string
+  }[]
   error?: string
 }
 

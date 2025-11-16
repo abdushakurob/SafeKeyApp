@@ -67,7 +67,6 @@ export default defineConfig({
         entryFileNames: '[name].js',
         chunkFileNames: '[name].js',
         assetFileNames: (assetInfo) => {
-          // Keep popup.html at root level
           if (assetInfo.name === 'popup.html') {
             return '[name][extname]'
           }

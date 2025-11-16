@@ -22,9 +22,12 @@ export interface BlockchainResponse {
   error?: string
 }
 
-import { API_BASE_URL_WITH_API } from '../shared/constants'
-
-const API_BASE_URL = API_BASE_URL_WITH_API
+// === API CONFIGURATION ===
+// To change the API URL, update this line and rebuild:
+const API_BASE_URL = 'http://localhost:3001/api'
+// Alternative examples:
+// const API_BASE_URL = 'https://your-production-api.com/api'
+// const API_BASE_URL = 'http://localhost:3000/api'
 
 /**
  * Check if API server is running
@@ -32,7 +35,7 @@ const API_BASE_URL = API_BASE_URL_WITH_API
 async function checkApiServer(): Promise<boolean> {
   try {
     console.log('[Blockchain] Checking API server health...')
-    const response = await fetch('http://localhost:3001/api/health', {
+    const response = await fetch(`${API_BASE_URL}/health`, {
       method: 'GET',
       signal: AbortSignal.timeout(2000), // 2 second timeout
     })
@@ -203,7 +206,91 @@ export async function saveCredential(credential: Credential): Promise<{ success:
 }
 
 /**
- * Get credential from blockchain
+ * Get credentials from blockchain (returns array)
+ * Calls web app API (which queries blockchain)
+ * Returns object with success status, credentials array, and error message
+ */
+export async function getCredentials(domain: string): Promise<{ success: boolean; credentials: Credential[]; error?: string }> {
+  try {
+    console.log('[Blockchain] Getting credentials for domain:', domain)
+    
+    // First check if API server is running
+    const serverRunning = await checkApiServer()
+    if (!serverRunning) {
+      const errorMsg = 'Web app API server is not running. Please start the web app first.'
+      console.warn('[Blockchain]', errorMsg)
+      return { success: false, credentials: [], error: errorMsg }
+    }
+    
+    const url = `${API_BASE_URL}/get-credential?domain=${encodeURIComponent(domain)}`
+    console.log('[Blockchain] Fetching:', url)
+    
+    const response = await fetch(url, {
+      method: 'GET',
+      signal: AbortSignal.timeout(10000),
+    })
+    
+    console.log('[Blockchain] Get credentials response status:', response.status, response.statusText)
+    
+    if (!response.ok) {
+      if (response.status === 401) {
+        const errorMsg = 'Not authenticated. Please login to the web app first.'
+        console.warn('[Blockchain]', errorMsg)
+        return { success: false, credentials: [], error: errorMsg }
+      }
+      const errorText = await response.text()
+      let errorMessage = `HTTP ${response.status}: ${response.statusText}`
+      try {
+        const errorData = JSON.parse(errorText)
+        errorMessage = errorData.error || errorMessage
+      } catch {
+        errorMessage = errorText || errorMessage
+      }
+      console.error('[Blockchain] API error response:', errorMessage)
+      return { success: false, credentials: [], error: errorMessage }
+    }
+    
+    const data = await response.json()
+    console.log('[Blockchain] Get credentials response:', data)
+    
+    if (data.success) {
+      // Use credentials array if available, otherwise fall back to single credential
+      const credentials = data.credentials || (data.credential ? [data.credential] : [])
+      console.log('[Blockchain] Retrieved', credentials.length, 'credential(s) for domain:', domain)
+      return { success: true, credentials }
+    } else {
+      const errorMessage = data.error || 'Credentials not found'
+      console.log('[Blockchain] Credentials not found:', errorMessage)
+      return { success: true, credentials: [] } // Not an error, just doesn't exist
+    }
+  } catch (error) {
+    const errorMessage = error instanceof Error ? error.message : String(error)
+    console.error('[Blockchain] Error getting credentials:', error)
+    
+    // Check if it's a network error
+    if (error instanceof TypeError && (error.message.includes('fetch') || error.message.includes('Failed to fetch'))) {
+      return { 
+        success: false, 
+        credentials: [],
+        error: 'Cannot connect to web app. Make sure the web app is running (npm run dev:all in web-app folder).' 
+      }
+    }
+    
+    // Check if it's a timeout
+    if (error instanceof Error && error.name === 'AbortError') {
+      return {
+        success: false,
+        credentials: [],
+        error: 'Request timeout. The web app may be slow to respond.'
+      }
+    }
+    
+    return { success: false, credentials: [], error: errorMessage }
+  }
+}
+
+/**
+ * Get credential from blockchain (single credential for backward compatibility)
  * Calls web app API (which queries blockchain)
  * Returns object with success status, credential, and error message
  */

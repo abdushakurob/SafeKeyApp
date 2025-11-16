@@ -180,34 +180,37 @@ app.get('/api/get-credential', async (req, res) => {
     console.log('[API] Getting credential for domain:', domain, 'address:', session.address)
     console.log('[API] Master key length:', masterKey?.length || 0)
     
-    // Get credential
-    let credential
+    // Get credentials (array)
+    let credentials
     try {
-      credential = await getCredential(domain, masterKey, session.address)
-      console.log('[API] getCredential returned:', credential ? 'credential object' : 'null')
-      if (credential) {
-        console.log('[API] Credential details:', {
-          domain: credential.domain,
-          username: credential.username,
-          passwordLength: credential.password?.length || 0
-        })
+      credentials = await getCredential(domain, masterKey, session.address)
+      console.log('[API] getCredential returned:', credentials ? `${credentials.length} credential(s)` : 'null')
+      if (credentials && credentials.length > 0) {
+        console.log('[API] Credential details:', credentials.map(c => ({
+          domain: c.domain,
+          username: c.username,
+          passwordLength: c.password?.length || 0
+        })))
       }
     } catch (error) {
       console.error('[API] Error in getCredential function:', error)
       console.error('[API] Error stack:', error instanceof Error ? error.stack : 'No stack')
       // Don't throw - return null credential instead
-      credential = null
+      credentials = null
     }
 
-    console.log('[API] Credential result:', credential ? 'found' : 'not found')
-    if (!credential) {
+    console.log('[API] Credential result:', credentials ? `${credentials.length} found` : 'not found')
+    if (!credentials || credentials.length === 0) {
       // Return success with null credential (not an error, just doesn't exist)
       console.log('[API] ⚠️ Returning success with null credential - credential may not exist or failed to decrypt')
-      return res.json({ success: true, credential: null })
+      return res.json({ success: true, credential: null, credentials: [] })
     }
 
-    console.log('[API] ✅ Returning credential for domain:', domain)
-    res.json({ success: true, credential })
+    // For backward compatibility, return first credential as 'credential'
+    // Also return all credentials as 'credentials' array
+    const firstCredential = credentials[0]
+    console.log('[API] ✅ Returning', credentials.length, 'credential(s) for domain:', domain)
+    res.json({ success: true, credential: firstCredential, credentials })
   } catch (error) {
     console.error('[API] Error getting credential:', error)
     res.status(500).json({ success: false, error: String(error) })
@@ -381,7 +384,6 @@ app.get('/api/all-credentials', async (_req, res) => {
 
     // Get all domains from vault
     const { getUserVaultId, getAllDomainHashes } = await import('../lib/vault')
-    const { deriveKS, decrypt, base64Encode } = await import('../lib/crypto')
     
     console.log('[API] Looking up vault for address:', session.address)
     const vaultId = await getUserVaultId(session.address)
@@ -414,196 +416,47 @@ app.get('/api/all-credentials', async (_req, res) => {
     // For now, let's return the domain hashes and let the client try to match them
     // OR: We can store domain in the encrypted data itself
     
-    // Better approach: Get credential info directly from dynamic field objects
+    // Use the smart credentials library which handles both Walrus (new format) and on-chain (old format)
     const credentials = []
     
     console.log(`[API] Processing ${domainHashes.length} domain hashes...`)
     
-    // Helper function for base64 decoding in Node.js (atob is not available)
-    const decodeBase64 = (str: string): Uint8Array => {
-      if (typeof Buffer !== 'undefined') {
-        return new Uint8Array(Buffer.from(str, 'base64'))
-      } else {
-        // Browser fallback
-        const binary = atob(str)
-        return Uint8Array.from(binary, c => c.charCodeAt(0))
-      }
-    }
-    
-    // Import the new function
-    const { getCredentialInfoFromDynamicField } = await import('../lib/vault')
+    // Import the credential retrieval function
+    const { getCredentialByDomainHash } = await import('../lib/credentials')
     
     for (const domainHash of domainHashes) {
       try {
-        const info = await getCredentialInfoFromDynamicField(vaultId, domainHash)
+        // Convert domainHash (Uint8Array) to base64 for the library function
+        const domainHashB64 = btoa(String.fromCharCode(...domainHash))
         
-        if (!info) {
-          console.warn('[API] Could not retrieve credential info for domain hash')
-          continue
-        }
+        console.log(`[API] Retrieving credential for hash: ${domainHashB64.substring(0, 16)}...`)
         
-        console.log('[API] Retrieved credential info, decrypting...')
-        console.log('[API] Data lengths:', {
-          data: info.data.length,
-          entryNonce: info.entryNonce.length,
-          sessionNonce: info.sessionNonce.length,
-        })
+        // This function intelligently handles:
+        // - New format: data is JSON array of Walrus blob IDs, fetches and decrypts from Walrus
+        // - Old format: data is encrypted bytes on-chain, decrypts directly
+        const creds = await getCredentialByDomainHash(domainHashB64, KM, session.address)
         
-        // Check if data is empty
-        if (info.data.length === 0) {
-          console.warn('[API] Data is empty, skipping credential')
-          continue
-        }
-        
-        // Handle different storage formats:
-        // - New format: raw bytes (12 bytes for IV, 16 bytes for session nonce)
-        // - Old format: base64 strings stored as bytes (24 bytes for 16-byte data, 16 bytes for 12-byte data)
-        let sessionNonceB64: string
-        let entryNonceB64: string
-        
-        // Check if sessionNonce is base64 string stored as bytes (24 bytes = 16 bytes base64-encoded)
-        if (info.sessionNonce.length === 24) {
-          // Decode as base64 string
-          try {
-            const decoded = new TextDecoder().decode(info.sessionNonce)
-            if (/^[A-Za-z0-9+/=]+$/.test(decoded)) {
-              sessionNonceB64 = decoded
-              console.log('[API] Session nonce is base64 string (24 bytes)')
-            } else {
-              // Not a valid base64 string, treat as raw bytes
-              sessionNonceB64 = base64Encode(info.sessionNonce)
-            }
-          } catch {
-            sessionNonceB64 = base64Encode(info.sessionNonce)
-          }
-        } else if (info.sessionNonce.length === 16) {
-          // Raw 16-byte session nonce, encode to base64
-          sessionNonceB64 = base64Encode(info.sessionNonce)
+        if (creds && creds.length > 0) {
+          credentials.push(...creds.map(cred => ({
+            domain: cred.domain,
+            username: cred.username,
+            password: cred.password,
+          })))
+          console.log(`[API] ✅ Retrieved and decrypted credential for domain: ${creds[0]?.domain}`)
         } else {
-          // Unknown format, try to encode
-          sessionNonceB64 = base64Encode(info.sessionNonce)
+          console.log('[API] ⚠️ No credentials returned for this hash')
         }
-        
-        // Check if entryNonce is base64 string stored as bytes (16 bytes = 12 bytes base64-encoded)
-        if (info.entryNonce.length === 16) {
-          // Might be base64 string (12 bytes base64-encoded = 16 bytes)
-          try {
-            const decoded = new TextDecoder().decode(info.entryNonce)
-            if (/^[A-Za-z0-9+/=]+$/.test(decoded)) {
-              // Verify it decodes to 12 bytes
-              const decodedBytes = decodeBase64(decoded)
-              if (decodedBytes.length === 12) {
-                entryNonceB64 = decoded
-                console.log('[API] Entry nonce is base64 string (16 bytes)')
-              } else {
-                // Not 12 bytes when decoded, treat as raw bytes
-                entryNonceB64 = base64Encode(info.entryNonce)
-              }
-            } else {
-              entryNonceB64 = base64Encode(info.entryNonce)
-            }
-          } catch {
-            entryNonceB64 = base64Encode(info.entryNonce)
-          }
-        } else if (info.entryNonce.length === 12) {
-          // Raw 12-byte IV, encode to base64
-          entryNonceB64 = base64Encode(info.entryNonce)
-        } else if (info.entryNonce.length === 24) {
-          // 24 bytes = might be base64 string for 18 bytes, but we expect 12
-          // Try decoding as base64
-          try {
-            const decoded = new TextDecoder().decode(info.entryNonce)
-            if (/^[A-Za-z0-9+/=]+$/.test(decoded)) {
-              const decodedBytes = decodeBase64(decoded)
-              if (decodedBytes.length === 12) {
-                entryNonceB64 = decoded
-                console.log('[API] Entry nonce is base64 string (24 bytes, decodes to 12)')
-              } else {
-                // Take first 12 bytes after decoding
-                entryNonceB64 = base64Encode(decodedBytes.slice(0, 12))
-              }
-            } else {
-              // Take first 12 bytes
-              entryNonceB64 = base64Encode(info.entryNonce.slice(0, 12))
-            }
-          } catch {
-            // Take first 12 bytes
-            entryNonceB64 = base64Encode(info.entryNonce.slice(0, 12))
-          }
-        } else {
-          // Unknown format, try to encode
-          entryNonceB64 = base64Encode(info.entryNonce)
-        }
-        
-        const encryptedDataB64 = base64Encode(info.data)
-        
-        console.log('[API] Derived base64 values, deriving session key...')
-        console.log('[API] Base64 lengths:', {
-          sessionNonce: sessionNonceB64.length,
-          entryNonce: entryNonceB64.length,
-          encryptedData: encryptedDataB64.length,
-        })
-        console.log('[API] Master key (KM) length:', KM.length)
-        
-        // Derive session key
-        const KS = await deriveKS(KM, sessionNonceB64)
-        
-        console.log('[API] Session key derived, decrypting data...')
-        
-        // Decrypt: reconstruct "iv.ciphertext" format
-        const encryptedData = `${entryNonceB64}.${encryptedDataB64}`
-        console.log('[API] Encrypted data format length:', encryptedData.length)
-        const decryptedData = await decrypt(encryptedData, KS)
-        
-        console.log('[API] Data decrypted, parsing JSON...')
-        
-        // Parse JSON
-        const credentialData = JSON.parse(decryptedData)
-        
-        console.log('[API] Successfully decrypted credential for domain:', credentialData.domain)
-        
-        if (!credentialData.domain || typeof credentialData.domain !== 'string') {
-          throw new Error('Invalid credential data: domain is required')
-        }
-        if (!credentialData.username || typeof credentialData.username !== 'string') {
-          throw new Error('Invalid credential data: username is required')
-        }
-        if (!credentialData.password || typeof credentialData.password !== 'string') {
-          throw new Error('Invalid credential data: password is required')
-        }
-        
-        credentials.push({
-          domain: credentialData.domain,
-          username: credentialData.username,
-          password: credentialData.password, // Include password in response
-          createdAt: info.createdAt,
-        })
       } catch (error) {
-        // Silently skip credentials that fail to decrypt (likely old test data with different keys)
-        // Only log if it's a new credential (created after we fixed the key derivation)
-        let createdAt = 0
-        try {
-          // Try to get createdAt from the info variable if it exists
-          const info = await getCredentialInfoFromDynamicField(vaultId, domainHash).catch(() => null)
-          if (info?.createdAt) {
-            createdAt = info.createdAt
-          }
-        } catch {
-          // Ignore if info is not accessible
-        }
-        const isRecent = createdAt > Date.now() - 3600000 // Last hour
-        if (isRecent) {
-          console.error('[API] Error processing recent credential:', error)
-          console.error('[API] Error details:', {
-            message: error instanceof Error ? error.message : String(error),
-            createdAt,
-          })
-        }
+        console.error(`[API] ❌ Error retrieving credential for hash:`, error)
+        console.error('[API] Error details:', {
+          message: error instanceof Error ? error.message : String(error),
+          hashPreview: domainHash.slice(0, 8).toString(),
+        })
         // Skip this credential but continue with others
       }
     }
     
-    console.log(`[API] Successfully processed ${credentials.length} credentials out of ${domainHashes.length} domain hashes`)
+    console.log(`[API] ✅ Successfully processed ${credentials.length} credentials out of ${domainHashes.length} domain hashes`)
 
     res.json({ success: true, credentials })
   } catch (error) {

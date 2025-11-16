@@ -46,9 +46,11 @@ export async function handleBlockchainRequest(
         if (!request.domain) {
           return { success: false, error: 'Domain is required' }
         }
-        const credential = await getCredential(request.domain, masterKey, address)
-        if (credential) {
-          return { success: true, credential }
+        const credentials = await getCredential(request.domain, masterKey, address)
+        if (credentials && credentials.length > 0) {
+          // Return first credential for backward compatibility
+          // TODO: Update extension to handle multiple credentials
+          return { success: true, credential: credentials[0], credentials }
         }
         return { success: false, error: 'Credential not found' }
 
@@ -56,7 +58,10 @@ export async function handleBlockchainRequest(
         if (!request.credential) {
           return { success: false, error: 'Credential is required' }
         }
-        await saveCredential(request.credential, masterKey, address, signAndExecute)
+        if (!wallets || !currentAccount) {
+          return { success: false, error: 'Wallets and currentAccount are required for saving credentials' }
+        }
+        await saveCredential(request.credential, masterKey, address, signAndExecute, wallets, currentAccount)
         return { success: true }
 
       default:

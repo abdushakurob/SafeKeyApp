@@ -1,5 +1,8 @@
-import { API_BASE_URL } from '../shared/constants'
 import { sendHeartbeat } from '../shared/heartbeat'
+
+// === API CONFIGURATION ===
+// To change the API URL, update this line and rebuild:
+const API_BASE_URL = 'http://localhost:3001'
 
 function getElement(id: string): HTMLElement | null {
   return document.getElementById(id)

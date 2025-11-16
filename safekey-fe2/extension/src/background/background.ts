@@ -1,4 +1,28 @@
-import { sendHeartbeat } from '../shared/heartbeat'
+// === API CONFIGURATION ===
+// To change the API URL, update this line and rebuild:
+const API_BASE_URL = 'http://localhost:3001'
+
+/**
+ * Send heartbeat to API server to announce extension is installed
+ */
+async function sendHeartbeat(): Promise<void> {
+  try {
+    const extensionId = chrome.runtime.id
+    const response = await fetch(`${API_BASE_URL}/api/extension-ping`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ extensionId })
+    })
+    
+    if (response.ok) {
+      console.log('[Heartbeat] Ping sent successfully')
+    } else {
+      console.warn('[Heartbeat] Ping failed:', response.status)
+    }
+  } catch (error) {
+    // Silently fail heartbeat - non-critical
+  }
+}
 
 console.log('[SafeKey Extension] Background script loaded')
 

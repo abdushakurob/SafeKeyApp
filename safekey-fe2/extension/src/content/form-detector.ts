@@ -1,5 +1,5 @@
 
-import { checkCredentialExists, saveCredential, getCredential, Credential } from '../services/blockchain'
+import { checkCredentialExists, saveCredential, getCredential, getCredentials, Credential } from '../services/blockchain'
 
 export interface DetectedForm {
   form: HTMLFormElement
@@ -138,7 +138,16 @@ function showAutofillButton(form: DetectedForm, credential: Credential) {
   // Create button
   const button = document.createElement('button')
   button.className = 'safekey-autofill-btn'
-  button.textContent = '🔐 Fill with SafeKey'
+  
+  // Create lock icon SVG
+  const lockIcon = `
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="margin-right: 0.5rem;">
+      <rect x="3" y="11" width="18" height="11" rx="2" ry="2"/>
+      <circle cx="12" cy="16" r="1"/>
+      <path d="M7 11V7a5 5 0 0 1 10 0v4"/>
+    </svg>
+  `
+  button.innerHTML = `${lockIcon}Fill with SafeKey`
   button.style.cssText = `
     position: fixed;
     background: #bfff0b;
@@ -153,6 +162,9 @@ function showAutofillButton(form: DetectedForm, credential: Credential) {
     box-shadow: 0 4px 12px rgba(191, 255, 11, 0.5);
     font-family: 'Satoshi', -apple-system, BlinkMacSystemFont, sans-serif;
     transition: all 0.3s ease;
+    display: flex;
+    align-items: center;
+    justify-content: center;
   `
 
   // Position button near password field (use fixed positioning for better visibility)
@@ -201,6 +213,172 @@ function showAutofillButton(form: DetectedForm, credential: Credential) {
     window.removeEventListener('resize', updatePosition)
     originalRemove()
   }
+}
+
+function showCredentialSelector(form: DetectedForm, credentials: Credential[]) {
+  console.log('[Form Detector] showCredentialSelector called with', credentials.length, 'credentials')
+  
+  // Remove existing selector if any
+  const existingSelector = document.querySelector('.safekey-credential-selector')
+  if (existingSelector) {
+    console.log('[Form Detector] Removing existing credential selector')
+    existingSelector.remove()
+  }
+
+  // Create selector modal/dropdown
+  const selector = document.createElement('div')
+  selector.className = 'safekey-credential-selector'
+  selector.style.cssText = `
+    position: fixed;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    background: #0a0a0a;
+    border: 1px solid rgba(191, 255, 11, 0.3);
+    border-radius: 0.75rem;
+    padding: 1.5rem;
+    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.8);
+    z-index: 10001;
+    max-width: 400px;
+    max-height: 80vh;
+    overflow-y: auto;
+    font-family: 'Satoshi', -apple-system, BlinkMacSystemFont, sans-serif;
+    color: #ffffff;
+  `
+
+  // Header
+  const header = document.createElement('div')
+  header.style.cssText = `
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 0.75rem;
+    color: rgba(255, 255, 255, 0.5);
+    margin-bottom: 0.5rem;
+    letter-spacing: 0.05em;
+  `
+  header.textContent = '/// MULTIPLE ACCOUNTS'
+
+  // Title
+  const title = document.createElement('div')
+  title.style.cssText = `
+    font-weight: 700;
+    margin-bottom: 1rem;
+    font-size: 1.1rem;
+    color: #bfff0b;
+  `
+  title.textContent = `Select Account for ${form.domain}`
+
+  // Credentials list
+  const credentialsList = document.createElement('div')
+  credentialsList.style.cssText = `
+    margin-bottom: 1rem;
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+  `
+
+  credentials.forEach((cred) => {
+    const credButton = document.createElement('button')
+    credButton.style.cssText = `
+      padding: 0.75rem;
+      background: rgba(191, 255, 11, 0.1);
+      border: 1px solid rgba(191, 255, 11, 0.2);
+      border-radius: 0.5rem;
+      color: rgba(255, 255, 255, 0.9);
+      cursor: pointer;
+      font-family: 'Satoshi', sans-serif;
+      font-size: 0.9rem;
+      text-align: left;
+      transition: all 0.3s ease;
+      display: flex;
+      flex-direction: column;
+      gap: 0.25rem;
+    `
+
+    const username = document.createElement('div')
+    username.style.color = '#bfff0b'
+    username.style.fontWeight = '600'
+    username.textContent = cred.username
+
+    const domain = document.createElement('div')
+    domain.style.fontSize = '0.8rem'
+    domain.style.color = 'rgba(255, 255, 255, 0.5)'
+    domain.textContent = cred.domain
+
+    credButton.appendChild(username)
+    credButton.appendChild(domain)
+
+    // Hover effect
+    credButton.addEventListener('mouseenter', () => {
+      credButton.style.background = 'rgba(191, 255, 11, 0.2)'
+      credButton.style.borderColor = 'rgba(191, 255, 11, 0.5)'
+    })
+    credButton.addEventListener('mouseleave', () => {
+      credButton.style.background = 'rgba(191, 255, 11, 0.1)'
+      credButton.style.borderColor = 'rgba(191, 255, 11, 0.2)'
+    })
+
+    // Click handler - autofill with this credential
+    credButton.addEventListener('click', (e) => {
+      e.preventDefault()
+      e.stopPropagation()
+      console.log('[Form Detector] Selected credential:', cred.username)
+      form.usernameField.value = cred.username
+      form.passwordField.value = cred.password
+      selector.remove()
+      showNotification(`Autofilled with ${cred.username}`, 'success')
+    })
+
+    credentialsList.appendChild(credButton)
+  })
+
+  // Cancel button
+  const cancelBtn = document.createElement('button')
+  cancelBtn.textContent = 'Cancel'
+  cancelBtn.style.cssText = `
+    width: 100%;
+    padding: 0.75rem;
+    background: transparent;
+    border: 1px solid rgba(255, 255, 255, 0.2);
+    color: rgba(255, 255, 255, 0.8);
+    border-radius: 0.5rem;
+    cursor: pointer;
+    font-family: 'Satoshi', sans-serif;
+    font-size: 0.9rem;
+    transition: all 0.3s ease;
+  `
+
+  cancelBtn.addEventListener('mouseenter', () => {
+    cancelBtn.style.background = 'rgba(255, 255, 255, 0.05)'
+    cancelBtn.style.borderColor = 'rgba(255, 255, 255, 0.3)'
+  })
+  cancelBtn.addEventListener('mouseleave', () => {
+    cancelBtn.style.background = 'transparent'
+    cancelBtn.style.borderColor = 'rgba(255, 255, 255, 0.2)'
+  })
+
+  cancelBtn.addEventListener('click', (e) => {
+    e.preventDefault()
+    e.stopPropagation()
+    selector.remove()
+  })
+
+  // Assemble selector
+  selector.appendChild(header)
+  selector.appendChild(title)
+  selector.appendChild(credentialsList)
+  selector.appendChild(cancelBtn)
+
+  document.body.appendChild(selector)
+  console.log('[Form Detector] Credential selector added to DOM')
+
+  // Close on escape key
+  const handleEscape = (e: KeyboardEvent) => {
+    if (e.key === 'Escape') {
+      selector.remove()
+      document.removeEventListener('keydown', handleEscape)
+    }
+  }
+  document.addEventListener('keydown', handleEscape)
 }
 
 function showSavePrompt(form: DetectedForm, isNewForm: boolean = false) {
@@ -486,35 +664,41 @@ export async function initFormDetection() {
     processedForms.add(form.form)
 
     if (checkResult.success && checkResult.exists) {
-      // Get credential and show autofill button immediately
-      console.log('[Form Detector] ✅ Credential EXISTS for domain, fetching details:', domain)
-      console.log('[Form Detector] Calling getCredential for:', domain)
+      // Get credentials and show appropriate UI
+      console.log('[Form Detector] Credential EXISTS for domain, fetching details:', domain)
+      console.log('[Form Detector] Calling getCredentials for:', domain)
       
-      getCredential(domain)
+      getCredentials(domain)
         .then((result) => {
-          console.log('[Form Detector] 📦 Get credential result:', JSON.stringify(result, null, 2))
+          console.log('[Form Detector] 📦 Get credentials result:', JSON.stringify(result, null, 2))
           
-          if (result.success && result.credential) {
-            console.log('[Form Detector] ✅ Credential retrieved successfully!', {
-              domain: result.credential.domain,
-              username: result.credential.username,
-              passwordLength: result.credential.password?.length || 0
-            })
-            console.log('[Form Detector] 🎯 Calling showAutofillButton...')
-            showAutofillButton(form, result.credential)
-            showNotification(`SafeKey: Credential found for ${domain}`, 'success')
-          } else if (result.success && !result.credential) {
-            console.warn('[Form Detector] ⚠️ Credential check said exists but getCredential returned null for:', domain)
+          if (result.success && result.credentials && result.credentials.length > 0) {
+            console.log('[Form Detector] Retrieved', result.credentials.length, 'credential(s)!')
+            
+            // Show appropriate UI based on number of credentials
+            if (result.credentials.length === 1) {
+              // Single credential - show autofill button
+              console.log('[Form Detector] 🎯 Single credential, showing autofill button...')
+              showAutofillButton(form, result.credentials[0])
+              showNotification(`SafeKey: Credential found for ${domain}`, 'success')
+            } else {
+              // Multiple credentials - show selector
+              console.log('[Form Detector] 🎯 Multiple credentials, showing selector...')
+              showCredentialSelector(form, result.credentials)
+              showNotification(`SafeKey: ${result.credentials.length} accounts found for ${domain}`, 'success')
+            }
+          } else if (result.success && (!result.credentials || result.credentials.length === 0)) {
+            console.warn('[Form Detector] Credential check said exists but getCredentials returned empty for:', domain)
             console.warn('[Form Detector] This might indicate a data inconsistency')
           } else if (!result.success && result.error) {
-            console.error('[Form Detector] ❌ Failed to get credential:', result.error)
+            console.error('[Form Detector] Failed to get credentials:', result.error)
             showNotification(result.error, 'error')
           } else {
-            console.warn('[Form Detector] ⚠️ Unexpected result format:', result)
+            console.warn('[Form Detector] Unexpected result format:', result)
           }
         })
         .catch((error) => {
-          console.error('[Form Detector] ❌ Error in getCredential promise:', error)
+          console.error('[Form Detector] Error in getCredentials promise:', error)
           console.error('[Form Detector] Error stack:', error.stack)
         })
     } else {

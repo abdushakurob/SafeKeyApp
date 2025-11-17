@@ -1,6 +1,5 @@
-import { initFormDetection } from './form-detector'
-
 console.log('[SafeKey Extension] Content script loaded')
 
-initFormDetection()
+// Import the form-detector module to initialize its event listeners
+import './form-detector'
 

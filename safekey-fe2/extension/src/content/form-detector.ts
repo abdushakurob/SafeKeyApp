@@ -624,14 +624,26 @@ const processedForms = new WeakSet<HTMLFormElement>()
 const credentialCheckCache = new Map<string, { result: { success: boolean; exists: boolean; error?: string }; timestamp: number }>()
 const CACHE_TTL = 30000
 
-export async function initFormDetection() {
-  const forms = detectLoginForms()
+// Global flag to prevent multiple simultaneous initializations
+let isInitializing = false
 
-  if (forms.length === 0) {
+export async function initFormDetection() {
+  // Prevent multiple simultaneous runs
+  if (isInitializing) {
+    console.log('[Form Detector] Already initializing, skipping duplicate call')
     return
   }
 
-  const domain = getDomain()
+  isInitializing = true
+
+  try {
+    const forms = detectLoginForms()
+
+    if (forms.length === 0) {
+      return
+    }
+
+    const domain = getDomain()
 
   // Check cache first
   const cached = credentialCheckCache.get(domain)
@@ -756,6 +768,10 @@ export async function initFormDetection() {
       }
     }, true) // Use capture phase to intercept before form submits
   })
+  } finally {
+    // Always reset the initialization flag
+    isInitializing = false
+  }
 }
 
 let debounceTimer: number | null = null

@@ -1,22 +1,23 @@
 
 import { useCurrentAccount, useWallets } from '@mysten/dapp-kit'
 import { useNavigate } from 'react-router-dom'
-import { useEffect, useState } from 'react'
+import { useEffect, useState, useCallback } from 'react'
 import { clearSession, loadSession } from '../lib/zklogin'
 import { clearExtensionSession, syncSessionToExtension } from '../lib/extension'
 import { saveCredential } from '../lib/credentials'
-import { deriveMasterKey } from '../lib/credentials'
-import { storeSession as storeSessionInStore, clearSession as clearSessionInStore, getSession as getSessionFromStore } from '../server/session-store'
+import { clearSession as clearSessionInStore } from '../server/session-store'
 import { signAndExecuteSponsoredTransaction } from '../lib/sponsored-transactions'
 import { API_BASE_URL } from '../lib/api-config'
+import { masterKeyManager } from '../lib/master-key-manager'
+import { sessionManager } from '../lib/session-manager'
 
 export default function Dashboard() {
   const currentAccount = useCurrentAccount()
   const wallets = useWallets()
   const navigate = useNavigate()
   
-  // Wrapper for sponsored transactions
-  const signAndExecute = async (params: { transaction: any }) => {
+  // Wrapper for sponsored transactions - memoized to prevent re-renders
+  const signAndExecute = useCallback(async (params: { transaction: any }) => {
     if (!currentAccount) {
       throw new Error('No current account')
     }
@@ -58,8 +59,8 @@ export default function Dashboard() {
       },
       currentAccount.address
     )
-  }
-  const [session] = useState(loadSession())
+  }, [currentAccount, wallets])
+  const [session] = useState(() => loadSession())
   const [credentials, setCredentials] = useState<Array<{ domain: string; username: string; password?: string }>>([])
   const [showAddForm, setShowAddForm] = useState(false)
   const [newCredential, setNewCredential] = useState({ domain: '', username: '', password: '' })
@@ -69,217 +70,159 @@ export default function Dashboard() {
   const [extensionInstalled, setExtensionInstalled] = useState(false)
   const [extensionSynced, setExtensionSynced] = useState(false)
 
-  // Check extension status via API endpoint
+  // Add a flag to prevent multiple initializations
+  const [isInitialized, setIsInitialized] = useState(false)
+
+  // Single coordinated initialization effect
   useEffect(() => {
-    const checkExtensionStatus = async () => {
+    // Redirect to login if not connected
+    if (!currentAccount) {
+      navigate('/login')
+      return
+    }
+
+    if (!session?.idToken) {
+      console.error('[Dashboard] idToken is required but not available in session')
+      return
+    }
+
+    // Prevent multiple initializations
+    if (isInitialized) {
+      console.log('[Dashboard] Already initialized, skipping...')
+      return
+    }
+
+    let extensionCheckInterval: NodeJS.Timeout
+    let queueProcessInterval: NodeJS.Timeout
+
+    const initializeApp = async () => {
       try {
-        const response = await fetch(`${API_BASE_URL}/extension-status`)
-        if (response.ok) {
-          const data = await response.json()
-          setExtensionInstalled(data.installed === true)
-          
-          // If extension is installed, sync session
-          if (data.installed && currentAccount && session?.idToken) {
-            const success = await syncSessionToExtension({
-              address: currentAccount.address,
-              idToken: session.idToken,
-              provider: session.provider,
-              createdAt: session.createdAt,
-            })
-            setExtensionSynced(success)
-            if (success) {
-              console.log('[Dashboard] Session synced to extension')
-            } else {
-              console.warn('[Dashboard] Failed to sync session to extension')
+        console.log('[Dashboard] Starting initialization...')
+        setIsInitialized(true)
+
+        // 1. Derive master key once using deduplication manager
+        const masterKey = await masterKeyManager.getMasterKey(
+          currentAccount.address,
+          session.idToken,
+          wallets,
+          currentAccount,
+          signAndExecute
+        )
+
+        // 2. Sync session to API server using deduplication manager
+        await sessionManager.syncSessionToAPI({
+          address: currentAccount.address,
+          idToken: session.idToken,
+          provider: session.provider!,
+          createdAt: session.createdAt!,
+          masterKey,
+        })
+
+        // 3. Load credentials initially
+        await loadCredentials()
+
+        // 4. Set up extension status polling
+        const checkExtensionStatus = async () => {
+          try {
+            const response = await fetch(`${API_BASE_URL}/extension-status`)
+            if (response.ok) {
+              const data = await response.json()
+              setExtensionInstalled(data.installed === true)
+              
+              if (data.installed && currentAccount && session?.idToken) {
+                const success = await syncSessionToExtension({
+                  address: currentAccount.address,
+                  idToken: session.idToken,
+                  provider: session.provider,
+                  createdAt: session.createdAt,
+                })
+                setExtensionSynced(success)
+              } else {
+                setExtensionSynced(false)
+              }
             }
-          } else {
+          } catch (error) {
+            setExtensionInstalled(false)
             setExtensionSynced(false)
           }
         }
-      } catch (error) {
-        // API server might not be running, extension not installed
-        setExtensionInstalled(false)
-        setExtensionSynced(false)
-      }
-    }
-    
-    // Initial check
-    checkExtensionStatus()
-    
-    // Poll every 5 seconds to check extension status
-    const interval = setInterval(checkExtensionStatus, 5000)
-    
-    return () => clearInterval(interval)
-  }, [currentAccount, session])
 
-  // Redirect to login if not connected
-  useEffect(() => {
-    if (!currentAccount) {
-      navigate('/login')
-    }
-  }, [currentAccount, navigate])
-
-  // Sync session to API server and extension
-  useEffect(() => {
-    if (currentAccount && wallets) {
-      if (!session?.idToken) {
-        console.error('[Dashboard] idToken is required but not available in session')
-        return
-      }
-      
-      deriveMasterKey(currentAccount.address, session.idToken, wallets, currentAccount, signAndExecute)
-        .then((masterKey) => {
-          console.log('[Dashboard] Master key derived successfully')
-          if (!session?.provider) {
-            throw new Error('Session provider is required')
-          }
-          if (!session?.createdAt) {
-            throw new Error('Session createdAt is required')
-          }
-          
-          storeSessionInStore({
-            address: currentAccount.address,
-            idToken: session.idToken,
-            provider: session.provider,
-            createdAt: session.createdAt,
-            masterKey,
-          })
-          
-          return fetch(`${API_BASE_URL}/sync-session`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              address: currentAccount.address,
-              idToken: session.idToken,
-              provider: session.provider,
-              createdAt: session.createdAt,
-              masterKey,
-            }),
-          })
-        })
-        .then((response) => {
-          if (response.ok) {
-            console.log('[Dashboard] Session synced to API server')
-          } else {
-            return response.json().then((data) => {
-              console.error('[Dashboard] Failed to sync session to API server:', data)
-              throw new Error(data.error || 'Failed to sync session')
-            })
-          }
-        })
-        .catch((error) => {
-          console.error('[Dashboard] Error syncing session to API server:', error)
-          console.error('[Dashboard] Error details:', {
-            message: error.message,
-            stack: error.stack,
-            name: error.name,
-          })
-        })
-
-      // Session syncing to extension is handled by the extension status check useEffect
-    }
-  }, [currentAccount, session])
-
-  // Poll and process save queue
-  useEffect(() => {
-    if (!currentAccount || !session?.idToken) return
-
-    const processQueue = async () => {
-      try {
-        const response = await fetch(`${API_BASE_URL}/pending-saves`)
-        const data = await response.json()
+        // Initial extension check
+        await checkExtensionStatus()
         
-        if (data.success && data.pending && data.pending.length > 0) {
-          if (!session.idToken) {
-            throw new Error('idToken is required but not available in session')
-          }
-          const masterKey = await deriveMasterKey(
-            currentAccount.address,
-            session.idToken,
-            wallets,
-            currentAccount,
-            signAndExecute
-          )
+        // Set up extension polling (every 5 seconds)
+        extensionCheckInterval = setInterval(checkExtensionStatus, 5000)
 
-          for (const item of data.pending) {
-            try {
-              await saveCredential(
-                { domain: item.domain, username: item.username, password: item.password },
-                masterKey,
+        // 5. Set up queue processing
+        const processQueue = async () => {
+          try {
+            const response = await fetch(`${API_BASE_URL}/pending-saves`)
+            const data = await response.json()
+            
+            if (data.success && data.pending && data.pending.length > 0) {
+              const masterKey = await masterKeyManager.getMasterKey(
                 currentAccount.address,
-                signAndExecute,
+                session.idToken,
                 wallets,
-                currentAccount
+                currentAccount,
+                signAndExecute
               )
-              
-              await fetch(`${API_BASE_URL}/pending-saves/${item.id}/complete`, {
-                method: 'POST',
-              })
-              
-              // Refresh credentials list
-              loadCredentials()
-            } catch (error) {
-              console.error(`[Dashboard] Error processing queued save:`, error)
+
+              for (const item of data.pending) {
+                try {
+                  await saveCredential(
+                    { domain: item.domain, username: item.username, password: item.password },
+                    masterKey,
+                    currentAccount.address,
+                    signAndExecute,
+                    wallets,
+                    currentAccount
+                  )
+                  
+                  await fetch(`${API_BASE_URL}/pending-saves/${item.id}/complete`, {
+                    method: 'POST',
+                  })
+                  
+                  // Refresh credentials list
+                  await loadCredentials()
+                } catch (error) {
+                  console.error(`[Dashboard] Error processing queued save:`, error)
+                }
+              }
             }
+          } catch (error) {
+            // Ignore errors in queue processing
           }
         }
+
+        // Set up queue polling (every 10 seconds)
+        queueProcessInterval = setInterval(processQueue, 10000)
+
+        console.log('[Dashboard] Initialization complete!')
+
       } catch (error) {
-        // Ignore errors
+        console.error('[Dashboard] Error initializing app:', error)
+        setIsInitialized(false) // Reset flag on error
       }
     }
 
-    processQueue()
-    // Poll every 10 seconds instead of 5 to reduce spam
-    const interval = setInterval(processQueue, 10000)
-    return () => clearInterval(interval)
-  }, [currentAccount, session, signAndExecute, wallets])
+    // Start initialization
+    initializeApp()
 
-  // Load credentials (wait for session to be synced first)
+    // Cleanup function
+    return () => {
+      if (extensionCheckInterval) {
+        clearInterval(extensionCheckInterval)
+      }
+      if (queueProcessInterval) {
+        clearInterval(queueProcessInterval)
+      }
+    }
+  }, [currentAccount?.address, session?.idToken, navigate, isInitialized])
+
+  // Separate effect for credential loading when needed
   const loadCredentials = async () => {
     if (!currentAccount || !session?.idToken) return
-    
-    if (!session.idToken) {
-      throw new Error('idToken is required but not available in session')
-    }
-    
-    try {
-      const storedSession = getSessionFromStore()
-      let masterKey = storedSession?.masterKey
-      
-      if (!masterKey && wallets && currentAccount) {
-        masterKey = await deriveMasterKey(currentAccount.address, session.idToken, wallets, currentAccount, signAndExecute)
-      }
-      
-      if (!masterKey) {
-        throw new Error('Master key is required but could not be derived')
-      }
-      
-      if (!session.provider) {
-        throw new Error('Session provider is required')
-      }
-      
-      if (!session.createdAt) {
-        throw new Error('Session createdAt is required')
-      }
-      
-      await fetch(`${API_BASE_URL}/sync-session`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          address: currentAccount.address,
-          idToken: session.idToken,
-          provider: session.provider,
-          createdAt: session.createdAt,
-          masterKey,
-        }),
-      })
-    } catch (error) {
-      // If sync fails, still try to load (might work if session was already synced)
-      console.warn('[Dashboard] Session sync failed, continuing anyway:', error)
-    }
-    
-    // Small delay to ensure session is processed
-    await new Promise(resolve => setTimeout(resolve, 100))
     
     setLoadingCredentials(true)
     try {
@@ -287,8 +230,7 @@ export default function Dashboard() {
       
       if (!response.ok) {
         if (response.status === 401) {
-          console.warn('[Dashboard] Unauthorized - session may not be synced yet, retrying...')
-          // Retry once after a short delay
+          console.warn('[Dashboard] Unauthorized - retrying...')
           await new Promise(resolve => setTimeout(resolve, 500))
           const retryResponse = await fetch(`${API_BASE_URL}/all-credentials`)
           if (!retryResponse.ok) {
@@ -315,7 +257,6 @@ export default function Dashboard() {
       }
     } catch (error) {
       console.error('[Dashboard] Error loading credentials:', error)
-      // API server might not be running, that's okay
       if (error instanceof TypeError && error.message.includes('fetch')) {
         console.warn('[Dashboard] API server not running, credentials not loaded')
       }
@@ -325,17 +266,14 @@ export default function Dashboard() {
     }
   }
 
-  useEffect(() => {
-    // Wait a bit for session sync to complete
-    const timer = setTimeout(() => {
-      loadCredentials()
-    }, 200)
-    return () => clearTimeout(timer)
-  }, [currentAccount, session])
-
   const handleLogout = async () => {
     clearSession()
     clearSessionInStore()
+    
+    // Clear manager caches
+    masterKeyManager.clearCache()
+    sessionManager.clearState()
+    
     fetch(`${API_BASE_URL}/clear-session`, { method: 'POST' }).catch(() => {})
     await clearExtensionSession()
     navigate('/')
@@ -357,13 +295,16 @@ export default function Dashboard() {
       if (!session?.idToken) {
         throw new Error('idToken is required but not available in session')
       }
-      const masterKey = await deriveMasterKey(
+      
+      // Use deduplication manager for master key
+      const masterKey = await masterKeyManager.getMasterKey(
         currentAccount.address,
         session.idToken,
         wallets,
         currentAccount,
         signAndExecute
       )
+      
       await saveCredential(
         { domain: newCredential.domain, username: newCredential.username, password: newCredential.password },
         masterKey,
@@ -373,8 +314,8 @@ export default function Dashboard() {
         currentAccount
       )
 
-          // Reload credentials from API
-          await loadCredentials()
+      // Reload credentials from API
+      await loadCredentials()
       setNewCredential({ domain: '', username: '', password: '' })
       setShowAddForm(false)
     } catch (error) {

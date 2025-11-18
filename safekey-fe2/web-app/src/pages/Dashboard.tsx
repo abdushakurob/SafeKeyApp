@@ -1,15 +1,16 @@
 
 import { useCurrentAccount, useWallets } from '@mysten/dapp-kit'
 import { useNavigate } from 'react-router-dom'
-import { useEffect, useState, useCallback } from 'react'
+import { useEffect, useState, useCallback, useRef } from 'react'
 import { clearSession, loadSession } from '../lib/zklogin'
 import { clearExtensionSession, syncSessionToExtension } from '../lib/extension'
-import { saveCredential } from '../lib/credentials'
+import { saveCredential, deleteCredential } from '../lib/credentials'
 import { clearSession as clearSessionInStore } from '../server/session-store'
 import { signAndExecuteSponsoredTransaction } from '../lib/sponsored-transactions'
 import { API_BASE_URL } from '../lib/api-config'
 import { masterKeyManager } from '../lib/master-key-manager'
 import { sessionManager } from '../lib/session-manager'
+import { persistenceManager } from '../lib/persistence-manager'
 
 export default function Dashboard() {
   const currentAccount = useCurrentAccount()
@@ -72,6 +73,9 @@ export default function Dashboard() {
 
   // Add a flag to prevent multiple initializations
   const [isInitialized, setIsInitialized] = useState(false)
+  
+  // Use ref to prevent multiple concurrent initialization attempts
+  const initializingRef = useRef(false)
 
   // Single coordinated initialization effect
   useEffect(() => {
@@ -87,8 +91,8 @@ export default function Dashboard() {
     }
 
     // Prevent multiple initializations
-    if (isInitialized) {
-      console.log('[Dashboard] Already initialized, skipping...')
+    if (isInitialized || initializingRef.current) {
+      console.log('[Dashboard] Already initialized or initializing, skipping...')
       return
     }
 
@@ -98,16 +102,43 @@ export default function Dashboard() {
     const initializeApp = async () => {
       try {
         console.log('[Dashboard] Starting initialization...')
+        initializingRef.current = true
         setIsInitialized(true)
 
-        // 1. Derive master key once using deduplication manager
-        const masterKey = await masterKeyManager.getMasterKey(
+        // 1. Check for persisted session data first
+        const persistedSession = await persistenceManager.getSessionIfValid(
           currentAccount.address,
-          session.idToken,
-          wallets,
-          currentAccount,
-          signAndExecute
+          session.idToken
         )
+
+        let masterKey: string
+        
+        if (persistedSession) {
+          console.log('[Dashboard] Using persisted session data')
+          masterKey = persistedSession.masterKey
+          
+          // Update managers with cached data
+          masterKeyManager.setMasterKey(currentAccount.address, masterKey)
+        } else {
+          console.log('[Dashboard] No valid persisted session, deriving master key...')
+          // Derive master key using deduplication manager
+          masterKey = await masterKeyManager.getMasterKey(
+            currentAccount.address,
+            session.idToken,
+            wallets,
+            currentAccount,
+            signAndExecute
+          )
+          
+          // Persist the session for future use
+          await persistenceManager.storeSession({
+            address: currentAccount.address,
+            idToken: session.idToken,
+            provider: session.provider!,
+            createdAt: session.createdAt!,
+            masterKey,
+          })
+        }
 
         // 2. Sync session to API server using deduplication manager
         await sessionManager.syncSessionToAPI({
@@ -183,8 +214,8 @@ export default function Dashboard() {
                     method: 'POST',
                   })
                   
-                  // Refresh credentials list
-                  await loadCredentials()
+                  // Refresh credentials list (force refresh to skip cache)
+                  await loadCredentials(true)
                 } catch (error) {
                   console.error(`[Dashboard] Error processing queued save:`, error)
                 }
@@ -199,10 +230,13 @@ export default function Dashboard() {
         queueProcessInterval = setInterval(processQueue, 10000)
 
         console.log('[Dashboard] Initialization complete!')
+        initializingRef.current = false
 
       } catch (error) {
         console.error('[Dashboard] Error initializing app:', error)
-        setIsInitialized(false) // Reset flag on error
+        // Reset the initializing ref to allow manual retry
+        initializingRef.current = false
+        // Keep isInitialized true to prevent automatic retries that cause loops
       }
     }
 
@@ -218,14 +252,32 @@ export default function Dashboard() {
         clearInterval(queueProcessInterval)
       }
     }
-  }, [currentAccount?.address, session?.idToken, navigate, isInitialized])
+  }, [currentAccount?.address, session?.idToken, navigate])
 
   // Separate effect for credential loading when needed
-  const loadCredentials = async () => {
+  const loadCredentials = async (forceRefresh: boolean = false) => {
     if (!currentAccount || !session?.idToken) return
     
     setLoadingCredentials(true)
     try {
+      // 1. Try to load from cache first (unless force refresh)
+      if (!forceRefresh) {
+        const masterKey = masterKeyManager.getCachedMasterKey()
+        if (masterKey) {
+          const cachedCredentials = await persistenceManager.getCredentials(masterKey)
+          if (cachedCredentials) {
+            console.log('[Dashboard] Using cached credentials')
+            setCredentials(cachedCredentials)
+            setLoadingCredentials(false)
+            return
+          }
+        }
+      } else {
+        console.log('[Dashboard] Force refresh requested, skipping cache')
+      }
+
+      // 2. Fetch from API if no cache
+      console.log('[Dashboard] Fetching credentials from API...')
       const response = await fetch(`${API_BASE_URL}/all-credentials`)
       
       if (!response.ok) {
@@ -240,6 +292,12 @@ export default function Dashboard() {
           if (retryData.success && Array.isArray(retryData.credentials)) {
             setCredentials(retryData.credentials)
             console.log('[Dashboard] Loaded', retryData.credentials.length, 'credentials')
+            
+            // Cache the results
+            const masterKey = masterKeyManager.getCachedMasterKey()
+            if (masterKey) {
+              await persistenceManager.storeCredentials(retryData.credentials, masterKey)
+            }
             return
           }
         }
@@ -251,6 +309,12 @@ export default function Dashboard() {
       if (data.success && Array.isArray(data.credentials)) {
         setCredentials(data.credentials)
         console.log('[Dashboard] Loaded', data.credentials.length, 'credentials')
+        
+        // Cache the results
+        const masterKey = masterKeyManager.getCachedMasterKey()
+        if (masterKey) {
+          await persistenceManager.storeCredentials(data.credentials, masterKey)
+        }
       } else {
         console.error('[Dashboard] Failed to load credentials:', data.error || 'Invalid response')
         setCredentials([])
@@ -267,16 +331,86 @@ export default function Dashboard() {
   }
 
   const handleLogout = async () => {
-    clearSession()
-    clearSessionInStore()
-    
-    // Clear manager caches
-    masterKeyManager.clearCache()
-    sessionManager.clearState()
-    
-    fetch(`${API_BASE_URL}/clear-session`, { method: 'POST' }).catch(() => {})
-    await clearExtensionSession()
-    navigate('/')
+    try {
+      console.log('[Dashboard] Starting logout process...')
+      
+      // 1. Clear session data
+      clearSession()
+      clearSessionInStore()
+      
+      // 2. Clear manager caches
+      masterKeyManager.clearCache()
+      sessionManager.clearState()
+      
+      // 3. Clear persistence layer
+      persistenceManager.clearAll()
+      
+      // 4. Clear API session
+      fetch(`${API_BASE_URL}/clear-session`, { method: 'POST' }).catch(() => {})
+      
+      // 5. Clear extension session
+      await clearExtensionSession()
+      
+      // 5. Disconnect all wallets to clear IndexedDB state
+      try {
+        const connectedWallets = wallets.filter(wallet => 
+          wallet.accounts.some(account => account.address === currentAccount?.address)
+        )
+        
+        for (const wallet of connectedWallets) {
+          if (wallet.features['standard:disconnect']) {
+            console.log('[Dashboard] Disconnecting wallet:', wallet.name)
+            await wallet.features['standard:disconnect'].disconnect()
+          }
+        }
+      } catch (error) {
+        console.warn('[Dashboard] Error disconnecting wallets:', error)
+      }
+      
+      // 6. Clear IndexedDB entries (Enoki and wallet data)
+      try {
+        // Clear all IndexedDB databases that might store wallet state
+        const databases = await indexedDB.databases()
+        for (const db of databases) {
+          if (db.name && (
+            db.name.includes('enoki') || 
+            db.name.includes('wallet') || 
+            db.name.includes('sui') ||
+            db.name.includes('dapp')
+          )) {
+            console.log('[Dashboard] Clearing IndexedDB:', db.name)
+            indexedDB.deleteDatabase(db.name)
+          }
+        }
+      } catch (error) {
+        console.warn('[Dashboard] Error clearing IndexedDB:', error)
+      }
+      
+      // 7. Clear all localStorage entries related to wallets
+      Object.keys(localStorage).forEach(key => {
+        if (key.includes('wallet') || key.includes('enoki') || key.includes('sui') || key.includes('connect')) {
+          console.log('[Dashboard] Clearing localStorage key:', key)
+          localStorage.removeItem(key)
+        }
+      })
+      
+      // 8. Clear sessionStorage
+      sessionStorage.clear()
+      
+      console.log('[Dashboard] Logout complete, redirecting...')
+      navigate('/')
+      
+      // 9. Force page reload to ensure clean state
+      setTimeout(() => {
+        window.location.reload()
+      }, 100)
+      
+    } catch (error) {
+      console.error('[Dashboard] Error during logout:', error)
+      // Force navigation anyway
+      navigate('/')
+      window.location.reload()
+    }
   }
 
   const handleAddCredential = async () => {
@@ -314,8 +448,8 @@ export default function Dashboard() {
         currentAccount
       )
 
-      // Reload credentials from API
-      await loadCredentials()
+      // Reload credentials from API (force refresh to skip cache)
+      await loadCredentials(true)
       setNewCredential({ domain: '', username: '', password: '' })
       setShowAddForm(false)
     } catch (error) {
@@ -327,9 +461,59 @@ export default function Dashboard() {
   }
 
   const handleDeleteCredential = async (domain: string) => {
-    if (!confirm(`Delete credentials for ${domain}?`)) return
-    // TODO: Implement delete functionality
-    setCredentials(credentials.filter(c => c.domain !== domain))
+    if (!currentAccount) {
+      alert('Please login first')
+      return
+    }
+
+    if (!confirm(`Are you sure you want to delete credentials for ${domain}?\n\nThis action cannot be undone.`)) {
+      return
+    }
+
+    setLoading(true)
+    try {
+      if (!session?.idToken) {
+        throw new Error('idToken is required but not available in session')
+      }
+      
+      // Get master key using deduplication manager
+      const masterKey = await masterKeyManager.getMasterKey(
+        currentAccount.address,
+        session.idToken,
+        wallets,
+        currentAccount,
+        signAndExecute
+      )
+      
+      console.log('[Dashboard] Deleting credential for domain:', domain)
+      
+      // Delete from blockchain
+      const txHash = await deleteCredential(
+        domain,
+        masterKey,
+        currentAccount.address,
+        signAndExecute
+      )
+      
+      console.log('[Dashboard] Credential deleted, transaction:', txHash)
+      
+      // Remove from local state immediately
+      setCredentials(credentials.filter(c => c.domain !== domain))
+      
+      // Clear cached credentials to force refresh
+      persistenceManager.clearCredentials()
+      
+      // Reload credentials to verify deletion (force refresh)
+      await loadCredentials(true)
+      
+      alert(`Credential for ${domain} deleted successfully!`)
+    } catch (error) {
+      console.error('[Dashboard] Error deleting credential:', error)
+      const errorMessage = error instanceof Error ? error.message : String(error)
+      alert(`Failed to delete credential: ${errorMessage}`)
+    } finally {
+      setLoading(false)
+    }
   }
 
   if (!currentAccount) {
@@ -402,35 +586,67 @@ export default function Dashboard() {
             <h1 style={{ fontSize: 'clamp(2rem, 4vw, 3rem)', fontWeight: 900, lineHeight: 1.1, letterSpacing: '-0.02em' }}>
               Your <span style={{ color: '#bfff0b' }}>Credentials</span>
             </h1>
-            <button
-              onClick={() => setShowAddForm(!showAddForm)}
-              style={{
-                padding: '0.875rem 1.5rem',
-                borderRadius: '0.5rem',
-                background: showAddForm ? 'transparent' : '#bfff0b',
-                color: showAddForm ? 'rgba(255, 255, 255, 0.8)' : '#0a0a0a',
-                fontSize: '0.95rem',
-                fontWeight: 700,
-                cursor: 'pointer',
-                transition: 'all 0.3s ease',
-                fontFamily: 'Satoshi, sans-serif',
-                border: showAddForm ? '1px solid rgba(255, 255, 255, 0.2)' : 'none',
-              }}
-              onMouseEnter={(e) => {
-                if (!showAddForm) {
-                  e.currentTarget.style.transform = 'translateY(-2px)'
-                  e.currentTarget.style.boxShadow = '0 4px 12px rgba(191, 255, 11, 0.3)'
-                }
-              }}
-              onMouseLeave={(e) => {
-                if (!showAddForm) {
-                  e.currentTarget.style.transform = 'translateY(0)'
-                  e.currentTarget.style.boxShadow = 'none'
-                }
-              }}
-            >
-              {showAddForm ? 'Cancel' : '+ Add Credential'}
-            </button>
+            <div style={{ display: 'flex', gap: '1rem', alignItems: 'center' }}>
+              <button
+                onClick={() => loadCredentials(true)}
+                disabled={loadingCredentials}
+                style={{
+                  padding: '0.875rem 1.25rem',
+                  borderRadius: '0.5rem',
+                  background: 'rgba(255, 255, 255, 0.05)',
+                  color: loadingCredentials ? 'rgba(255, 255, 255, 0.5)' : 'rgba(255, 255, 255, 0.8)',
+                  fontSize: '0.95rem',
+                  fontWeight: 600,
+                  cursor: loadingCredentials ? 'not-allowed' : 'pointer',
+                  transition: 'all 0.3s ease',
+                  fontFamily: 'Satoshi, sans-serif',
+                  border: '1px solid rgba(255, 255, 255, 0.2)',
+                }}
+                onMouseEnter={(e) => {
+                  if (!loadingCredentials) {
+                    e.currentTarget.style.background = 'rgba(255, 255, 255, 0.1)'
+                    e.currentTarget.style.borderColor = 'rgba(255, 255, 255, 0.3)'
+                  }
+                }}
+                onMouseLeave={(e) => {
+                  if (!loadingCredentials) {
+                    e.currentTarget.style.background = 'rgba(255, 255, 255, 0.05)'
+                    e.currentTarget.style.borderColor = 'rgba(255, 255, 255, 0.2)'
+                  }
+                }}
+              >
+                {loadingCredentials ? '⟳ Refreshing...' : '⟳ Refresh'}
+              </button>
+              <button
+                onClick={() => setShowAddForm(!showAddForm)}
+                style={{
+                  padding: '0.875rem 1.5rem',
+                  borderRadius: '0.5rem',
+                  background: showAddForm ? 'transparent' : '#bfff0b',
+                  color: showAddForm ? 'rgba(255, 255, 255, 0.8)' : '#0a0a0a',
+                  fontSize: '0.95rem',
+                  fontWeight: 700,
+                  cursor: 'pointer',
+                  transition: 'all 0.3s ease',
+                  fontFamily: 'Satoshi, sans-serif',
+                  border: showAddForm ? '1px solid rgba(255, 255, 255, 0.2)' : 'none',
+                }}
+                onMouseEnter={(e) => {
+                  if (!showAddForm) {
+                    e.currentTarget.style.transform = 'translateY(-2px)'
+                    e.currentTarget.style.boxShadow = '0 4px 12px rgba(191, 255, 11, 0.3)'
+                  }
+                }}
+                onMouseLeave={(e) => {
+                  if (!showAddForm) {
+                    e.currentTarget.style.transform = 'translateY(0)'
+                    e.currentTarget.style.boxShadow = 'none'
+                  }
+                }}
+              >
+                {showAddForm ? 'Cancel' : '+ Add Credential'}
+              </button>
+            </div>
           </div>
 
           {/* Add Credential Form */}

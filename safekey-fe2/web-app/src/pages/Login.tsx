@@ -37,8 +37,45 @@ export default function Login() {
         throw new Error('Wallet provider is required')
       }
       
+      // Try to get the actual JWT idToken from Enoki wallet
+      let idToken: string = currentAccount.address // Fallback to address
+      
+      // Try to get the JWT token from localStorage (Enoki stores it there)
+      try {
+        const enokiSession = localStorage.getItem('enoki:session')
+        if (enokiSession) {
+          const parsedSession = JSON.parse(enokiSession)
+          if (parsedSession?.idToken) {
+            idToken = parsedSession.idToken
+            console.log('[Login] Found Enoki idToken in localStorage')
+          }
+        }
+      } catch (error) {
+        console.warn('[Login] Could not extract idToken from Enoki session:', error)
+      }
+      
+      // If still no proper idToken, try alternative keys
+      if (idToken === currentAccount.address) {
+        try {
+          const keys = Object.keys(localStorage)
+          for (const key of keys) {
+            if (key.includes('enoki') || key.includes('auth') || key.includes('token')) {
+              const value = localStorage.getItem(key)
+              if (value && value.includes('.') && value.length > 100) {
+                // Looks like a JWT token
+                idToken = value
+                console.log('[Login] Found potential JWT token in localStorage key:', key)
+                break
+              }
+            }
+          }
+        } catch (error) {
+          console.warn('[Login] Could not search for JWT tokens:', error)
+        }
+      }
+
       const sessionData = {
-        idToken: currentAccount.address,
+        idToken,
         address: currentAccount.address,
         provider: enokiWallet.provider as AuthProvider,
         createdAt: Date.now(),

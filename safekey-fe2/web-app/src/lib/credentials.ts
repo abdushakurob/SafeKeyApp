@@ -30,7 +30,7 @@ export async function deriveMasterKey(
 ): Promise<string> {
   if (wallets && currentAccount) {
     const { deriveMasterKeyFromSeal } = await import('./seal')
-    return await deriveMasterKeyFromSeal(address, idToken, wallets, currentAccount, signAndExecute)
+    return await deriveMasterKeyFromSeal(address, idToken, wallets, currentAccount, signAndExecute!)
   }
 
   throw new Error('Cannot derive master key: SEAL requires wallets and currentAccount. Use stored master key from session instead.')
@@ -560,5 +560,54 @@ export async function credentialExists(
   }
 
   return false
+}
+
+/**
+ * Delete a credential from the vault
+ */
+export async function deleteCredential(
+  domain: string,
+  KM: string,
+  address: string,
+  signAndExecute: (params: { transaction: any }) => Promise<any>
+): Promise<string> {
+  try {
+    console.log('[Credentials] Starting delete credential for domain:', domain)
+    
+    // Get domain hash
+    const domainHashB64 = await hashDomain(domain, KM)
+    const domainHash = Uint8Array.from(atob(domainHashB64), c => c.charCodeAt(0))
+    
+    // Get or create vault 
+    const vaultId = await getOrCreateVault(address, signAndExecute)
+    console.log('[Credentials] Using vault ID:', vaultId)
+    
+    // Check if credential exists
+    const exists = await checkCredentialExists(vaultId, domainHash, address)
+    if (!exists) {
+      throw new Error(`No credential found for domain: ${domain}`)
+    }
+    
+    // Import delete function from vault
+    const { deleteCredential: deleteFromVault } = await import('./vault')
+    
+    // Delete from vault
+    console.log('[Credentials] Deleting from vault...')
+    const txHash = await deleteFromVault(vaultId, domainHash, signAndExecute)
+    
+    console.log('[Credentials] ✅ Credential deleted successfully')
+    console.log('[Credentials] Transaction hash:', txHash)
+    
+    return txHash
+  } catch (error) {
+    console.error('[Credentials] Error deleting credential:', error)
+    console.error('[Credentials] Error details:', {
+      message: error instanceof Error ? error.message : String(error),
+      stack: error instanceof Error ? error.stack : undefined,
+      domain,
+      address,
+    })
+    throw error
+  }
 }
 

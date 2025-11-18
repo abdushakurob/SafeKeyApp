@@ -7,7 +7,7 @@ import { queueSave, getPendingSaves, removeFromQueue } from './save-queue'
 import { EnokiClient } from '@mysten/enoki'
 
 const app = express()
-const PORT = 3001
+const PORT = parseInt(process.env.PORT || '3001', 10)
 
 // Extension heartbeat tracking
 // Stores the last heartbeat timestamp for each extension instance
@@ -92,7 +92,7 @@ app.use(cors({
   },
   credentials: true,
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
-  allowedHeaders: ['Content-Type', 'Authorization'],
+  allowedHeaders: ['Content-Type', 'Authorization', 'X-Session-ID', 'X-Request-Entropy'],
 }))
 app.use(express.json())
 

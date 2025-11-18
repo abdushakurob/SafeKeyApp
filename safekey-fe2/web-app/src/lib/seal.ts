@@ -294,7 +294,7 @@ export async function deriveMasterKeyFromSeal(
       sessionKeyKeys: Object.keys(sessionKey || {}),
     })
     
-    const derivedKeys = await sealClient.getDerivedKeys({
+    const derivedKeys = await sealClient!.getDerivedKeys({
       id: address,
       txBytes: txBytes,
       sessionKey: sessionKey,

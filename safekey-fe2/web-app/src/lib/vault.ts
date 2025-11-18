@@ -680,3 +680,45 @@ export async function updateCredential(
   }
 }
 
+/**
+ * Delete a credential entry from the vault
+ */
+export async function deleteCredential(
+  vaultId: string,
+  domainHash: Uint8Array,
+  signAndExecute: (params: { transaction: any }) => Promise<any>
+): Promise<string> {
+  try {
+    console.log('[Vault] Deleting credential from vault:', vaultId)
+    console.log('[Vault] Domain hash length:', domainHash.length)
+    
+    const tx = new Transaction()
+    
+    // Add the delete entry call
+    tx.moveCall({
+      target: `${SAFEKEY_PACKAGE_ID}::vault::delete_entry`,
+      arguments: [
+        tx.object(vaultId),
+        tx.pure.vector('u8', Array.from(domainHash))
+      ]
+    })
+    
+    console.log('[Vault] Executing delete credential transaction...')
+    const result = await signAndExecute({
+      transaction: tx,
+    })
+    
+    console.log('[Vault] ✅ Credential deleted successfully')
+    console.log('[Vault] Transaction digest:', result.digest)
+    
+    return result.digest
+  } catch (error) {
+    console.error('[Vault] Error deleting credential:', error)
+    console.error('[Vault] Error details:', {
+      message: error instanceof Error ? error.message : String(error),
+      stack: error instanceof Error ? error.stack : undefined,
+    })
+    throw error
+  }
+}
+

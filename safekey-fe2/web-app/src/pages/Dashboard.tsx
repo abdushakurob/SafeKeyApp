@@ -121,6 +121,7 @@ export default function Dashboard() {
   const [newCredential, setNewCredential] = useState({ domain: '', username: '', password: '' })
   const [loading, setLoading] = useState(false)
   const [loadingCredentials, setLoadingCredentials] = useState(true)
+  const [_extensionInstalled, setExtensionInstalled] = useState(false)
   const [extensionSynced, setExtensionSynced] = useState(false)
 
   // New State

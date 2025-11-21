@@ -1,7 +1,6 @@
-
 import { useCurrentAccount, useWallets } from '@mysten/dapp-kit'
 import { useNavigate } from 'react-router-dom'
-import { useEffect, useState, useCallback, useRef } from 'react'
+import { useEffect, useState, useCallback, useRef, useMemo } from 'react'
 import { clearSession, loadSession } from '../lib/zklogin'
 import { clearExtensionSession, syncSessionToExtension } from '../lib/extension'
 import { saveCredential, deleteCredential } from '../lib/credentials'
@@ -11,30 +10,85 @@ import { API_BASE_URL } from '../lib/api-config'
 import { masterKeyManager } from '../lib/master-key-manager'
 import { sessionManager } from '../lib/session-manager'
 import { persistenceManager } from '../lib/persistence-manager'
+import './Dashboard.css'
+
+// --- Icons ---
+const Icons = {
+  Dashboard: () => (
+    <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <rect x="3" y="3" width="7" height="7"></rect>
+      <rect x="14" y="3" width="7" height="7"></rect>
+      <rect x="14" y="14" width="7" height="7"></rect>
+      <rect x="3" y="14" width="7" height="7"></rect>
+    </svg>
+  ),
+  Menu: () => (
+    <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <line x1="3" y1="12" x2="21" y2="12"></line>
+      <line x1="3" y1="6" x2="21" y2="6"></line>
+      <line x1="3" y1="18" x2="21" y2="18"></line>
+    </svg>
+  ),
+  Eye: () => (
+    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"></path>
+      <circle cx="12" cy="12" r="3"></circle>
+    </svg>
+  ),
+  EyeOff: () => (
+    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"></path>
+      <line x1="1" y1="1" x2="23" y2="23"></line>
+    </svg>
+  ),
+  Copy: () => (
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect>
+      <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path>
+    </svg>
+  ),
+  Trash: () => (
+    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <polyline points="3 6 5 6 21 6"></polyline>
+      <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path>
+    </svg>
+  ),
+  Search: () => (
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <circle cx="11" cy="11" r="8"></circle>
+      <line x1="21" y1="21" x2="16.65" y2="16.65"></line>
+    </svg>
+  ),
+  ChevronRight: () => (
+    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <polyline points="9 18 15 12 9 6"></polyline>
+    </svg>
+  )
+}
 
 export default function Dashboard() {
   const currentAccount = useCurrentAccount()
   const wallets = useWallets()
   const navigate = useNavigate()
-  
+
   // Wrapper for sponsored transactions - memoized to prevent re-renders
   const signAndExecute = useCallback(async (params: { transaction: any }) => {
     if (!currentAccount) {
       throw new Error('No current account')
     }
-    
+
     // Get the connected wallet
     const connectedWallet = wallets.find(w => w.accounts.some(acc => acc.address === currentAccount.address))
     if (!connectedWallet) {
       throw new Error('No connected wallet found')
     }
-    
+
     // Get the signTransaction feature from the wallet
     const signTransactionFeature = (connectedWallet.features as any)['sui:signTransaction']
     if (!signTransactionFeature) {
       throw new Error('Wallet does not support sui:signTransaction')
     }
-    
+
     return signAndExecuteSponsoredTransaction(
       params.transaction,
       async (sponsoredBytes: string) => {
@@ -43,13 +97,13 @@ export default function Dashboard() {
         // from the base64 bytes
         const { Transaction } = await import('@mysten/sui/transactions')
         const { fromB64 } = await import('@mysten/sui/utils')
-        
+
         // Decode base64 to Uint8Array
         const txBytes = fromB64(sponsoredBytes)
-        
+
         // Reconstruct Transaction from bytes
         const sponsoredTx = Transaction.from(txBytes)
-        
+
         // Sign the Transaction object
         const result = await signTransactionFeature.signTransaction({
           transaction: sponsoredTx,
@@ -65,15 +119,24 @@ export default function Dashboard() {
   const [credentials, setCredentials] = useState<Array<{ domain: string; username: string; password?: string }>>([])
   const [showAddForm, setShowAddForm] = useState(false)
   const [newCredential, setNewCredential] = useState({ domain: '', username: '', password: '' })
-  const [visiblePasswords, setVisiblePasswords] = useState<Set<number>>(new Set())
   const [loading, setLoading] = useState(false)
   const [loadingCredentials, setLoadingCredentials] = useState(true)
   const [extensionInstalled, setExtensionInstalled] = useState(false)
   const [extensionSynced, setExtensionSynced] = useState(false)
 
+  // New State
+  const [searchQuery, setSearchQuery] = useState('')
+  // Selected credential is now a GROUP of credentials for a domain
+  const [selectedGroup, setSelectedGroup] = useState<{ domain: string; accounts: Array<{ username: string; password?: string }> } | null>(null)
+  const [showUserMenu, setShowUserMenu] = useState(false)
+  const [showLogoutConfirm, setShowLogoutConfirm] = useState(false)
+  // Track password visibility per account index in the modal
+  const [visiblePasswords, setVisiblePasswords] = useState<Record<number, boolean>>({})
+  const [sidebarExpanded, setSidebarExpanded] = useState(false)
+
   // Add a flag to prevent multiple initializations
   const [isInitialized, setIsInitialized] = useState(false)
-  
+
   // Use ref to prevent multiple concurrent initialization attempts
   const initializingRef = useRef(false)
 
@@ -112,11 +175,11 @@ export default function Dashboard() {
         )
 
         let masterKey: string
-        
+
         if (persistedSession) {
           console.log('[Dashboard] Using persisted session data')
           masterKey = persistedSession.masterKey
-          
+
           // Update managers with cached data
           masterKeyManager.setMasterKey(currentAccount.address, masterKey)
         } else {
@@ -129,7 +192,7 @@ export default function Dashboard() {
             currentAccount,
             signAndExecute
           )
-          
+
           // Persist the session for future use
           await persistenceManager.storeSession({
             address: currentAccount.address,
@@ -159,7 +222,7 @@ export default function Dashboard() {
             if (response.ok) {
               const data = await response.json()
               setExtensionInstalled(data.installed === true)
-              
+
               if (data.installed && currentAccount && session?.idToken) {
                 const success = await syncSessionToExtension({
                   address: currentAccount.address,
@@ -180,7 +243,7 @@ export default function Dashboard() {
 
         // Initial extension check
         await checkExtensionStatus()
-        
+
         // Set up extension polling (every 5 seconds)
         extensionCheckInterval = setInterval(checkExtensionStatus, 5000)
 
@@ -189,7 +252,7 @@ export default function Dashboard() {
           try {
             const response = await fetch(`${API_BASE_URL}/pending-saves`)
             const data = await response.json()
-            
+
             if (data.success && data.pending && data.pending.length > 0) {
               const masterKey = await masterKeyManager.getMasterKey(
                 currentAccount.address,
@@ -209,11 +272,11 @@ export default function Dashboard() {
                     wallets,
                     currentAccount
                   )
-                  
+
                   await fetch(`${API_BASE_URL}/pending-saves/${item.id}/complete`, {
                     method: 'POST',
                   })
-                  
+
                   // Refresh credentials list (force refresh to skip cache)
                   await loadCredentials(true)
                 } catch (error) {
@@ -257,7 +320,7 @@ export default function Dashboard() {
   // Separate effect for credential loading when needed
   const loadCredentials = async (forceRefresh: boolean = false) => {
     if (!currentAccount || !session?.idToken) return
-    
+
     setLoadingCredentials(true)
     try {
       // 1. Try to load from cache first (unless force refresh)
@@ -279,7 +342,7 @@ export default function Dashboard() {
       // 2. Fetch from API if no cache
       console.log('[Dashboard] Fetching credentials from API...')
       const response = await fetch(`${API_BASE_URL}/all-credentials`)
-      
+
       if (!response.ok) {
         if (response.status === 401) {
           console.warn('[Dashboard] Unauthorized - retrying...')
@@ -292,7 +355,7 @@ export default function Dashboard() {
           if (retryData.success && Array.isArray(retryData.credentials)) {
             setCredentials(retryData.credentials)
             console.log('[Dashboard] Loaded', retryData.credentials.length, 'credentials')
-            
+
             // Cache the results
             const masterKey = masterKeyManager.getCachedMasterKey()
             if (masterKey) {
@@ -303,13 +366,13 @@ export default function Dashboard() {
         }
         throw new Error(`HTTP ${response.status}: ${response.statusText}`)
       }
-      
+
       const data = await response.json()
-      
+
       if (data.success && Array.isArray(data.credentials)) {
         setCredentials(data.credentials)
         console.log('[Dashboard] Loaded', data.credentials.length, 'credentials')
-        
+
         // Cache the results
         const masterKey = masterKeyManager.getCachedMasterKey()
         if (masterKey) {
@@ -333,30 +396,30 @@ export default function Dashboard() {
   const handleLogout = async () => {
     try {
       console.log('[Dashboard] Starting logout process...')
-      
+
       // 1. Clear session data
       clearSession()
       clearSessionInStore()
-      
+
       // 2. Clear manager caches
       masterKeyManager.clearCache()
       sessionManager.clearState()
-      
+
       // 3. Clear persistence layer
       persistenceManager.clearAll()
-      
+
       // 4. Clear API session
-      fetch(`${API_BASE_URL}/clear-session`, { method: 'POST' }).catch(() => {})
-      
+      fetch(`${API_BASE_URL}/clear-session`, { method: 'POST' }).catch(() => { })
+
       // 5. Clear extension session
       await clearExtensionSession()
-      
+
       // 5. Disconnect all wallets to clear IndexedDB state
       try {
-        const connectedWallets = wallets.filter(wallet => 
+        const connectedWallets = wallets.filter(wallet =>
           wallet.accounts.some(account => account.address === currentAccount?.address)
         )
-        
+
         for (const wallet of connectedWallets) {
           if (wallet.features['standard:disconnect']) {
             console.log('[Dashboard] Disconnecting wallet:', wallet.name)
@@ -366,15 +429,15 @@ export default function Dashboard() {
       } catch (error) {
         console.warn('[Dashboard] Error disconnecting wallets:', error)
       }
-      
+
       // 6. Clear IndexedDB entries (Enoki and wallet data)
       try {
         // Clear all IndexedDB databases that might store wallet state
         const databases = await indexedDB.databases()
         for (const db of databases) {
           if (db.name && (
-            db.name.includes('enoki') || 
-            db.name.includes('wallet') || 
+            db.name.includes('enoki') ||
+            db.name.includes('wallet') ||
             db.name.includes('sui') ||
             db.name.includes('dapp')
           )) {
@@ -385,7 +448,7 @@ export default function Dashboard() {
       } catch (error) {
         console.warn('[Dashboard] Error clearing IndexedDB:', error)
       }
-      
+
       // 7. Clear all localStorage entries related to wallets
       Object.keys(localStorage).forEach(key => {
         if (key.includes('wallet') || key.includes('enoki') || key.includes('sui') || key.includes('connect')) {
@@ -393,18 +456,18 @@ export default function Dashboard() {
           localStorage.removeItem(key)
         }
       })
-      
+
       // 8. Clear sessionStorage
       sessionStorage.clear()
-      
+
       console.log('[Dashboard] Logout complete, redirecting...')
       navigate('/')
-      
+
       // 9. Force page reload to ensure clean state
       setTimeout(() => {
         window.location.reload()
       }, 100)
-      
+
     } catch (error) {
       console.error('[Dashboard] Error during logout:', error)
       // Force navigation anyway
@@ -429,7 +492,7 @@ export default function Dashboard() {
       if (!session?.idToken) {
         throw new Error('idToken is required but not available in session')
       }
-      
+
       // Use deduplication manager for master key
       const masterKey = await masterKeyManager.getMasterKey(
         currentAccount.address,
@@ -438,7 +501,7 @@ export default function Dashboard() {
         currentAccount,
         signAndExecute
       )
-      
+
       await saveCredential(
         { domain: newCredential.domain, username: newCredential.username, password: newCredential.password },
         masterKey,
@@ -466,16 +529,12 @@ export default function Dashboard() {
       return
     }
 
-    if (!confirm(`Are you sure you want to delete credentials for ${domain}?\n\nThis action cannot be undone.`)) {
-      return
-    }
-
     setLoading(true)
     try {
       if (!session?.idToken) {
         throw new Error('idToken is required but not available in session')
       }
-      
+
       // Get master key using deduplication manager
       const masterKey = await masterKeyManager.getMasterKey(
         currentAccount.address,
@@ -484,9 +543,9 @@ export default function Dashboard() {
         currentAccount,
         signAndExecute
       )
-      
+
       console.log('[Dashboard] Deleting credential for domain:', domain)
-      
+
       // Delete from blockchain
       const txHash = await deleteCredential(
         domain,
@@ -494,19 +553,21 @@ export default function Dashboard() {
         currentAccount.address,
         signAndExecute
       )
-      
+
       console.log('[Dashboard] Credential deleted, transaction:', txHash)
-      
+
       // Remove from local state immediately
       setCredentials(credentials.filter(c => c.domain !== domain))
-      
+
       // Clear cached credentials to force refresh
       persistenceManager.clearCredentials()
-      
+
       // Reload credentials to verify deletion (force refresh)
       await loadCredentials(true)
-      
-      alert(`Credential for ${domain} deleted successfully!`)
+
+      // Close modal if open
+      setSelectedGroup(null)
+
     } catch (error) {
       console.error('[Dashboard] Error deleting credential:', error)
       const errorMessage = error instanceof Error ? error.message : String(error)
@@ -516,401 +577,318 @@ export default function Dashboard() {
     }
   }
 
+  // Helper to get brand color based on domain
+  const getBrandColor = (domain: string) => {
+    const d = domain.toLowerCase()
+    if (d.includes('google')) return 'linear-gradient(135deg, #4285F4, #34A853, #FBBC05, #EA4335)'
+    if (d.includes('netflix')) return '#E50914'
+    if (d.includes('spotify')) return '#1DB954'
+    if (d.includes('github')) return '#333'
+    if (d.includes('twitter') || d.includes('x.com')) return '#1DA1F2'
+    if (d.includes('facebook')) return '#1877F2'
+    if (d.includes('amazon')) return '#FF9900'
+    return '#333' // Default
+  }
+
+  // Filter and Group credentials
+  const groupedCredentials = useMemo(() => {
+    let filtered = credentials
+    if (searchQuery) {
+      const q = searchQuery.toLowerCase()
+      filtered = credentials.filter(c =>
+        c.domain.toLowerCase().includes(q) ||
+        c.username.toLowerCase().includes(q)
+      )
+    }
+
+    // Group by domain
+    const groups: Record<string, typeof credentials> = {}
+    filtered.forEach(cred => {
+      // Normalize domain for grouping (e.g. google.com vs Google.com)
+      const key = cred.domain.toLowerCase()
+      // Use the display domain from the first entry
+      if (!groups[key]) groups[key] = []
+      groups[key].push(cred)
+    })
+
+    return Object.values(groups).map(accounts => ({
+      domain: accounts[0].domain,
+      accounts: accounts
+    }))
+  }, [credentials, searchQuery])
+
+  const handleCopy = (text: string) => {
+    navigator.clipboard.writeText(text)
+  }
+
+  const togglePasswordVisibility = (index: number) => {
+    setVisiblePasswords(prev => ({
+      ...prev,
+      [index]: !prev[index]
+    }))
+  }
+
   if (!currentAccount) {
     return null
   }
 
   return (
-    <div style={{ minHeight: '100vh', background: '#0a0a0a', color: '#ffffff' }}>
-      {/* Header */}
-      <header style={{ padding: '2rem 0', borderBottom: '1px solid rgba(255, 255, 255, 0.1)' }}>
-        <div style={{ maxWidth: '1200px', margin: '0 auto', padding: '0 2rem', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-          <div style={{ fontSize: '1.5rem', fontWeight: 700, letterSpacing: '-0.02em' }}>SafeKey</div>
-          <div style={{ display: 'flex', gap: '1.5rem', alignItems: 'center' }}>
-            <div style={{ textAlign: 'right' }}>
-              <div style={{ fontFamily: 'JetBrains Mono, monospace', fontSize: '0.75rem', color: 'rgba(255, 255, 255, 0.5)', marginBottom: '0.25rem' }}>
-                /// CONNECTED
-              </div>
-              <div style={{ fontSize: '0.9rem', fontWeight: 500, color: '#bfff0b', marginBottom: '0.25rem' }}>
-                {currentAccount.address.substring(0, 8)}...{currentAccount.address.substring(currentAccount.address.length - 6)}
-              </div>
-              <div style={{ fontFamily: 'JetBrains Mono, monospace', fontSize: '0.7rem', color: 'rgba(255, 255, 255, 0.4)', marginBottom: '0.25rem' }}>
-                API: {loadingCredentials ? 'Loading...' : credentials.length > 0 ? `${credentials.length} credentials` : 'Ready'}
-              </div>
-              {extensionInstalled ? (
-                <div style={{ fontFamily: 'JetBrains Mono, monospace', fontSize: '0.7rem', color: extensionSynced ? '#bfff0b' : 'rgba(255, 255, 255, 0.4)' }}>
-                  Extension: {extensionSynced ? 'Synced' : 'Not synced'}
-                </div>
-              ) : (
-                <div style={{ fontFamily: 'JetBrains Mono, monospace', fontSize: '0.7rem', color: 'rgba(255, 255, 255, 0.3)' }}>
-                  Extension: Not installed
-                </div>
-              )}
+    <div className="dashboard-container">
+      {/* Sidebar */}
+      <div className={`dash-sidebar ${sidebarExpanded ? 'expanded' : ''}`}>
+        <div className="dash-logo-container" onClick={() => setSidebarExpanded(!sidebarExpanded)}>
+          <span className="dash-logo-text">SK</span>
+        </div>
+
+        <div className="dash-nav">
+          <div className="dash-nav-item active" onClick={() => setSidebarExpanded(!sidebarExpanded)}>
+            <div className="nav-icon-wrapper">
+              <Icons.Dashboard />
             </div>
-            <button
-              onClick={handleLogout}
-              style={{
-                padding: '0.75rem 1.5rem',
-                border: '1px solid rgba(255, 255, 255, 0.2)',
-                borderRadius: '0.5rem',
-                background: 'transparent',
-                color: 'rgba(255, 255, 255, 0.8)',
-                cursor: 'pointer',
-                fontSize: '0.95rem',
-                fontWeight: 500,
-                transition: 'all 0.3s ease',
-                fontFamily: 'Satoshi, sans-serif',
-              }}
-              onMouseEnter={(e) => {
-                e.currentTarget.style.background = 'rgba(255, 255, 255, 0.05)'
-                e.currentTarget.style.borderColor = 'rgba(255, 255, 255, 0.3)'
-              }}
-              onMouseLeave={(e) => {
-                e.currentTarget.style.background = 'transparent'
-                e.currentTarget.style.borderColor = 'rgba(255, 255, 255, 0.2)'
-              }}
-            >
-              Logout
+            <span className="nav-label">Dashboard</span>
+          </div>
+        </div>
+
+        <div className="dash-user-container">
+          <div className="dash-user-bottom" onClick={() => setShowUserMenu(!showUserMenu)} title="User Profile">
+            <div className="user-circle"></div>
+            <span className="user-label">
+              {currentAccount.address.slice(0, 6)}...
+            </span>
+          </div>
+
+          {/* User Menu Popup */}
+          {showUserMenu && (
+            <div className="user-menu-popup">
+              <div className="user-menu-info">
+                <div className="user-menu-label">Signed in as</div>
+                <div className="user-menu-address">
+                  {currentAccount.address.slice(0, 6)}...{currentAccount.address.slice(-4)}
+                </div>
+              </div>
+              <div className="user-menu-divider"></div>
+              <button className="user-menu-logout" onClick={() => setShowLogoutConfirm(true)}>
+                Log Out
+              </button>
+            </div>
+          )}
+        </div>
+      </div>
+
+      {/* Main Content */}
+      <div className="dash-main">
+        {/* Header */}
+        <div className="dash-header">
+          <div className="dash-title">
+            <h1>Safekey Dashboard</h1>
+            <div className={`extension-status ${extensionSynced ? 'connected' : ''}`}>
+              <div className="status-dot"></div>
+              {extensionSynced ? 'Extension Connected' : 'Extension Not Detected'}
+            </div>
+          </div>
+
+          <div className="dash-actions">
+            <div className="dash-search-bar">
+              <div className="dash-search-icon-wrapper">
+                <Icons.Search />
+              </div>
+              <input
+                type="text"
+                className="dash-search-input"
+                placeholder="Search vault..."
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+              />
+            </div>
+            <button className="dash-add-btn" onClick={() => setShowAddForm(true)}>
+              <span>+</span>
+              {/* Add New */}
             </button>
           </div>
         </div>
-      </header>
 
-      {/* Main Content */}
-      <main style={{ maxWidth: '1200px', margin: '4rem auto', padding: '0 2rem' }}>
-        <div style={{ marginBottom: '3rem' }}>
-          <p style={{ fontFamily: 'JetBrains Mono, monospace', fontSize: '0.85rem', color: 'rgba(255, 255, 255, 0.5)', marginBottom: '1rem', letterSpacing: '0.05em' }}>
-            /// YOUR VAULT
-          </p>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '2rem' }}>
-            <h1 style={{ fontSize: 'clamp(2rem, 4vw, 3rem)', fontWeight: 900, lineHeight: 1.1, letterSpacing: '-0.02em' }}>
-              Your <span style={{ color: '#bfff0b' }}>Credentials</span>
-            </h1>
-            <div style={{ display: 'flex', gap: '1rem', alignItems: 'center' }}>
-              <button
-                onClick={() => loadCredentials(true)}
-                disabled={loadingCredentials}
-                style={{
-                  padding: '0.875rem 1.25rem',
-                  borderRadius: '0.5rem',
-                  background: 'rgba(255, 255, 255, 0.05)',
-                  color: loadingCredentials ? 'rgba(255, 255, 255, 0.5)' : 'rgba(255, 255, 255, 0.8)',
-                  fontSize: '0.95rem',
-                  fontWeight: 600,
-                  cursor: loadingCredentials ? 'not-allowed' : 'pointer',
-                  transition: 'all 0.3s ease',
-                  fontFamily: 'Satoshi, sans-serif',
-                  border: '1px solid rgba(255, 255, 255, 0.2)',
-                }}
-                onMouseEnter={(e) => {
-                  if (!loadingCredentials) {
-                    e.currentTarget.style.background = 'rgba(255, 255, 255, 0.1)'
-                    e.currentTarget.style.borderColor = 'rgba(255, 255, 255, 0.3)'
-                  }
-                }}
-                onMouseLeave={(e) => {
-                  if (!loadingCredentials) {
-                    e.currentTarget.style.background = 'rgba(255, 255, 255, 0.05)'
-                    e.currentTarget.style.borderColor = 'rgba(255, 255, 255, 0.2)'
-                  }
-                }}
-              >
-                {loadingCredentials ? '⟳ Refreshing...' : '⟳ Refresh'}
-              </button>
-              <button
-                onClick={() => setShowAddForm(!showAddForm)}
-                style={{
-                  padding: '0.875rem 1.5rem',
-                  borderRadius: '0.5rem',
-                  background: showAddForm ? 'transparent' : '#bfff0b',
-                  color: showAddForm ? 'rgba(255, 255, 255, 0.8)' : '#0a0a0a',
-                  fontSize: '0.95rem',
-                  fontWeight: 700,
-                  cursor: 'pointer',
-                  transition: 'all 0.3s ease',
-                  fontFamily: 'Satoshi, sans-serif',
-                  border: showAddForm ? '1px solid rgba(255, 255, 255, 0.2)' : 'none',
-                }}
-                onMouseEnter={(e) => {
-                  if (!showAddForm) {
-                    e.currentTarget.style.transform = 'translateY(-2px)'
-                    e.currentTarget.style.boxShadow = '0 4px 12px rgba(191, 255, 11, 0.3)'
-                  }
-                }}
-                onMouseLeave={(e) => {
-                  if (!showAddForm) {
-                    e.currentTarget.style.transform = 'translateY(0)'
-                    e.currentTarget.style.boxShadow = 'none'
-                  }
-                }}
-              >
-                {showAddForm ? 'Cancel' : '+ Add Credential'}
-              </button>
-            </div>
-          </div>
-
-          {/* Add Credential Form */}
-          {showAddForm && (
-            <div
-              style={{
-                background: 'rgba(255, 255, 255, 0.03)',
-                border: '1px solid rgba(255, 255, 255, 0.1)',
-                borderRadius: '1rem',
-                padding: '2rem',
-                marginBottom: '2rem',
-              }}
-            >
-              <h3 style={{ fontSize: '1.25rem', fontWeight: 700, marginBottom: '1.5rem', letterSpacing: '-0.01em' }}>
-                Add New Credential
-              </h3>
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
-                <input
-                  type="text"
-                  placeholder="Domain (e.g., github.com)"
-                  value={newCredential.domain}
-                  onChange={(e) => setNewCredential({ ...newCredential, domain: e.target.value })}
-                  style={{
-                    padding: '0.875rem 1rem',
-                    border: '1px solid rgba(255, 255, 255, 0.2)',
-                    borderRadius: '0.5rem',
-                    fontSize: '0.95rem',
-                    background: 'rgba(255, 255, 255, 0.05)',
-                    color: '#ffffff',
-                    fontFamily: 'Satoshi, sans-serif',
-                  }}
-                />
-                <input
-                  type="text"
-                  placeholder="Username or Email"
-                  value={newCredential.username}
-                  onChange={(e) => setNewCredential({ ...newCredential, username: e.target.value })}
-                  style={{
-                    padding: '0.875rem 1rem',
-                    border: '1px solid rgba(255, 255, 255, 0.2)',
-                    borderRadius: '0.5rem',
-                    fontSize: '0.95rem',
-                    background: 'rgba(255, 255, 255, 0.05)',
-                    color: '#ffffff',
-                    fontFamily: 'Satoshi, sans-serif',
-                  }}
-                />
-                <input
-                  type="password"
-                  placeholder="Password"
-                  value={newCredential.password}
-                  onChange={(e) => setNewCredential({ ...newCredential, password: e.target.value })}
-                  style={{
-                    padding: '0.875rem 1rem',
-                    border: '1px solid rgba(255, 255, 255, 0.2)',
-                    borderRadius: '0.5rem',
-                    fontSize: '0.95rem',
-                    background: 'rgba(255, 255, 255, 0.05)',
-                    color: '#ffffff',
-                    fontFamily: 'Satoshi, sans-serif',
-                  }}
-                />
-                <button
-                  onClick={handleAddCredential}
-                  disabled={loading}
-                  style={{
-                    padding: '0.875rem 1.5rem',
-                    border: 'none',
-                    borderRadius: '0.5rem',
-                    background: loading ? 'rgba(255, 255, 255, 0.1)' : '#bfff0b',
-                    color: loading ? 'rgba(255, 255, 255, 0.5)' : '#0a0a0a',
-                    fontSize: '0.95rem',
-                    fontWeight: 700,
-                    cursor: loading ? 'not-allowed' : 'pointer',
-                    transition: 'all 0.3s ease',
-                    fontFamily: 'Satoshi, sans-serif',
-                  }}
-                  onMouseEnter={(e) => {
-                    if (!loading) {
-                      e.currentTarget.style.transform = 'translateY(-2px)'
-                      e.currentTarget.style.boxShadow = '0 4px 12px rgba(191, 255, 11, 0.3)'
-                    }
-                  }}
-                  onMouseLeave={(e) => {
-                    if (!loading) {
-                      e.currentTarget.style.transform = 'translateY(0)'
-                      e.currentTarget.style.boxShadow = 'none'
-                    }
-                  }}
-                >
-                  {loading ? 'Saving...' : 'Save Credential'}
-                </button>
-              </div>
-            </div>
-          )}
-
-          {/* Credentials List */}
+        {/* Content */}
+        <div className="dash-content">
           {loadingCredentials ? (
-            <div style={{ textAlign: 'center', padding: '4rem', color: 'rgba(255, 255, 255, 0.5)' }}>
-              Loading credentials...
+            <div className="loading-overlay">
+              <div className="spinner"></div>
             </div>
-          ) : credentials.length === 0 ? (
-            <div
-              style={{
-                background: 'rgba(255, 255, 255, 0.03)',
-                border: '1px solid rgba(255, 255, 255, 0.1)',
-                borderRadius: '1rem',
-                padding: '4rem 2rem',
-                textAlign: 'center',
-                color: 'rgba(255, 255, 255, 0.6)',
-              }}
-            >
-              <p style={{ fontSize: '1.25rem', marginBottom: '0.75rem', fontWeight: 500 }}>
-                No credentials yet
-              </p>
-              <p style={{ fontSize: '0.95rem', lineHeight: 1.6, color: 'rgba(255, 255, 255, 0.5)' }}>
-                Add your first credential to get started, or use the browser extension to save credentials automatically when you log in to websites.
-              </p>
+          ) : groupedCredentials.length === 0 ? (
+            <div className="empty-state">
+              {searchQuery ? (
+                <p>No credentials found matching "{searchQuery}"</p>
+              ) : (
+                <>
+                  <h3>No credentials yet</h3>
+                  <p>Add your first credential to get started.</p>
+                </>
+              )}
             </div>
           ) : (
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
-              {credentials.map((cred, index) => (
+            <div className="dash-list">
+              {groupedCredentials.map((group, index) => (
                 <div
                   key={index}
-                  style={{
-                    background: 'rgba(255, 255, 255, 0.03)',
-                    border: '1px solid rgba(255, 255, 255, 0.1)',
-                    borderRadius: '0.75rem',
-                    padding: '1.5rem',
-                    display: 'flex',
-                    justifyContent: 'space-between',
-                    alignItems: 'center',
-                    transition: 'all 0.3s ease',
-                  }}
-                  onMouseEnter={(e) => {
-                    e.currentTarget.style.borderColor = 'rgba(191, 255, 11, 0.3)'
-                    e.currentTarget.style.background = 'rgba(255, 255, 255, 0.05)'
-                  }}
-                  onMouseLeave={(e) => {
-                    e.currentTarget.style.borderColor = 'rgba(255, 255, 255, 0.1)'
-                    e.currentTarget.style.background = 'rgba(255, 255, 255, 0.03)'
+                  className="dash-row"
+                  onClick={() => {
+                    setSelectedGroup(group)
+                    setVisiblePasswords({})
                   }}
                 >
-                  <div style={{ flex: 1 }}>
-                    <div style={{ fontSize: '1.1rem', fontWeight: 600, marginBottom: '0.5rem', color: '#ffffff' }}>
-                      {cred.domain}
-                    </div>
-                    <div style={{ fontSize: '0.9rem', color: 'rgba(255, 255, 255, 0.6)', fontFamily: 'JetBrains Mono, monospace', marginBottom: '0.5rem' }}>
-                      {cred.username}
-                    </div>
-                    {cred.password && (
-                      <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginTop: '0.5rem' }}>
-                        <div style={{ 
-                          fontSize: '0.85rem', 
-                          color: 'rgba(255, 255, 255, 0.7)', 
-                          fontFamily: 'JetBrains Mono, monospace',
-                          padding: '0.25rem 0.5rem',
-                          background: 'rgba(255, 255, 255, 0.05)',
-                          borderRadius: '0.25rem',
-                          flex: 1,
-                        }}>
-                          {visiblePasswords.has(index) ? cred.password : '••••••••'}
-                        </div>
-                        <button
-                          onClick={() => {
-                            const newVisible = new Set(visiblePasswords)
-                            if (newVisible.has(index)) {
-                              newVisible.delete(index)
-                            } else {
-                              newVisible.add(index)
-                            }
-                            setVisiblePasswords(newVisible)
-                          }}
-                          style={{
-                            padding: '0.25rem 0.5rem',
-                            border: '1px solid rgba(255, 255, 255, 0.2)',
-                            borderRadius: '0.25rem',
-                            background: 'transparent',
-                            color: 'rgba(255, 255, 255, 0.7)',
-                            cursor: 'pointer',
-                            fontSize: '0.9rem',
-                            display: 'flex',
-                            alignItems: 'center',
-                            justifyContent: 'center',
-                            transition: 'all 0.2s ease',
-                          }}
-                          onMouseEnter={(e) => {
-                            e.currentTarget.style.background = 'rgba(255, 255, 255, 0.1)'
-                            e.currentTarget.style.borderColor = 'rgba(255, 255, 255, 0.3)'
-                          }}
-                          onMouseLeave={(e) => {
-                            e.currentTarget.style.background = 'transparent'
-                            e.currentTarget.style.borderColor = 'rgba(255, 255, 255, 0.2)'
-                          }}
-                          title={visiblePasswords.has(index) ? 'Hide password' : 'Show password'}
-                        >
-                          {visiblePasswords.has(index) ? (
-                            // Eye open icon (password visible)
-                            <svg 
-                              width="16" 
-                              height="16" 
-                              viewBox="0 0 24 24" 
-                              fill="none" 
-                              stroke="currentColor" 
-                              strokeWidth="2" 
-                              strokeLinecap="round" 
-                              strokeLinejoin="round"
-                            >
-                              <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/>
-                              <circle cx="12" cy="12" r="3"/>
-                            </svg>
-                          ) : (
-                            // Eye closed icon (password hidden)
-                            <svg 
-                              width="16" 
-                              height="16" 
-                              viewBox="0 0 24 24" 
-                              fill="none" 
-                              stroke="currentColor" 
-                              strokeWidth="2" 
-                              strokeLinecap="round" 
-                              strokeLinejoin="round"
-                            >
-                              <path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"/>
-                              <line x1="1" y1="1" x2="23" y2="23"/>
-                            </svg>
-                          )}
-                        </button>
-                      </div>
-                    )}
-                  </div>
-                  <button
-                    onClick={() => handleDeleteCredential(cred.domain)}
-                    style={{
-                      padding: '0.5rem 1rem',
-                      border: '1px solid rgba(255, 255, 255, 0.2)',
-                      borderRadius: '0.5rem',
-                      background: 'transparent',
-                      color: 'rgba(255, 255, 255, 0.7)',
-                      cursor: 'pointer',
-                      fontSize: '0.9rem',
-                      fontWeight: 500,
-                      transition: 'all 0.3s ease',
-                      fontFamily: 'Satoshi, sans-serif',
-                    }}
-                    onMouseEnter={(e) => {
-                      e.currentTarget.style.background = 'rgba(255, 255, 255, 0.1)'
-                      e.currentTarget.style.borderColor = 'rgba(255, 255, 255, 0.3)'
-                      e.currentTarget.style.color = '#ffffff'
-                    }}
-                    onMouseLeave={(e) => {
-                      e.currentTarget.style.background = 'transparent'
-                      e.currentTarget.style.borderColor = 'rgba(255, 255, 255, 0.2)'
-                      e.currentTarget.style.color = 'rgba(255, 255, 255, 0.7)'
-                    }}
+                  <div
+                    className="dash-row-icon"
+                    style={{ background: getBrandColor(group.domain) }}
                   >
-                    Delete
-                  </button>
+                    {group.domain.charAt(0).toUpperCase()}
+                  </div>
+                  <div className="dash-row-content">
+                    <div className="dash-row-title">{group.domain}</div>
+                    <div className="dash-row-sub">
+                      {group.accounts.length} account{group.accounts.length !== 1 ? 's' : ''}
+                    </div>
+                  </div>
+                  <div className="dash-row-actions">
+                    <div className="arrow-icon">
+                      <Icons.ChevronRight />
+                    </div>
+                  </div>
                 </div>
               ))}
             </div>
           )}
         </div>
-      </main>
+
+        {/* Add Credential Modal */}
+        {showAddForm && (
+          <div className="modal-overlay" onClick={() => setShowAddForm(false)}>
+            <div className="modal-content" onClick={e => e.stopPropagation()}>
+              <div className="modal-header">
+                <div className="modal-title">Add Credential</div>
+                <button className="close-btn" onClick={() => setShowAddForm(false)}>×</button>
+              </div>
+
+              <div className="form-group">
+                <input
+                  type="text"
+                  className="form-input"
+                  placeholder="Domain (e.g. google.com)"
+                  value={newCredential.domain}
+                  onChange={(e) => setNewCredential({ ...newCredential, domain: e.target.value })}
+                />
+              </div>
+              <div className="form-group">
+                <input
+                  type="text"
+                  className="form-input"
+                  placeholder="Username"
+                  value={newCredential.username}
+                  onChange={(e) => setNewCredential({ ...newCredential, username: e.target.value })}
+                />
+              </div>
+              <div className="form-group">
+                <input
+                  type="password"
+                  className="form-input"
+                  placeholder="Password"
+                  value={newCredential.password}
+                  onChange={(e) => setNewCredential({ ...newCredential, password: e.target.value })}
+                />
+              </div>
+
+              <button
+                className="submit-btn"
+                onClick={handleAddCredential}
+                disabled={loading}
+              >
+                {loading ? 'Saving...' : 'Save to Vault'}
+              </button>
+            </div>
+          </div>
+        )}
+
+        {/* Credential Detail Modal */}
+        {selectedGroup && (
+          <div className="modal-overlay" onClick={() => setSelectedGroup(null)}>
+            <div className="modal-content detail-modal" onClick={e => e.stopPropagation()}>
+              <div className="modal-header">
+                <div className="detail-header-left">
+                  <div
+                    className="detail-icon"
+                    style={{ background: getBrandColor(selectedGroup.domain) }}
+                  >
+                    {selectedGroup.domain.charAt(0).toUpperCase()}
+                  </div>
+                  <div className="modal-title">{selectedGroup.domain}</div>
+                </div>
+                <button className="close-btn" onClick={() => setSelectedGroup(null)}>×</button>
+              </div>
+
+              <div className="detail-accounts-list">
+                {selectedGroup.accounts.map((account, idx) => (
+                  <div key={idx} className="detail-account-item">
+                    <div className="detail-group">
+                      <label>Username</label>
+                      <div className="detail-value-box">
+                        <span>{account.username}</span>
+                        <button className="copy-btn" onClick={() => handleCopy(account.username)}>
+                          <Icons.Copy />
+                        </button>
+                      </div>
+                    </div>
+
+                    <div className="detail-group">
+                      <label>Password</label>
+                      <div className="detail-value-box">
+                        <span className={visiblePasswords[idx] ? '' : 'masked'}>
+                          {visiblePasswords[idx] ? account.password : '••••••••••••'}
+                        </span>
+                        <div className="detail-actions">
+                          <button className="toggle-btn" onClick={() => togglePasswordVisibility(idx)}>
+                            {visiblePasswords[idx] ? <Icons.EyeOff /> : <Icons.Eye />}
+                          </button>
+                          <button className="copy-btn" onClick={() => handleCopy(account.password || '')}>
+                            <Icons.Copy />
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                    {idx < selectedGroup.accounts.length - 1 && <div className="account-divider"></div>}
+                  </div>
+                ))}
+              </div>
+
+              <div className="detail-footer">
+                <button
+                  className="delete-btn-large"
+                  onClick={() => {
+                    if (confirm(`Are you sure you want to delete ALL credentials for ${selectedGroup.domain}?`)) {
+                      handleDeleteCredential(selectedGroup.domain)
+                    }
+                  }}
+                  disabled={loading}
+                >
+                  <span className="btn-icon"><Icons.Trash /></span>
+                  {loading ? 'Deleting...' : 'Delete All Credentials'}
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Logout Confirmation Modal */}
+        {showLogoutConfirm && (
+          <div className="modal-overlay" onClick={() => setShowLogoutConfirm(false)}>
+            <div className="modal-content confirm-modal" onClick={e => e.stopPropagation()}>
+              <div className="modal-title">Log Out</div>
+              <p className="confirm-text">Are you sure you want to log out? You will need to sign in again to access your vault.</p>
+              <div className="confirm-actions">
+                <button className="cancel-btn" onClick={() => setShowLogoutConfirm(false)}>Cancel</button>
+                <button className="confirm-logout-btn" onClick={handleLogout}>Log Out</button>
+              </div>
+            </div>
+          </div>
+        )}
+      </div>
     </div>
   )
 }

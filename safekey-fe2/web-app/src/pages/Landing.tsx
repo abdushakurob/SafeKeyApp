@@ -113,14 +113,12 @@ const ThreeBackground = () => {
 
 export default function Landing() {
   const navigate = useNavigate()
-  const [scrollY, setScrollY] = useState(0)
 
   // Refs for GSAP
   const heroRef = useRef<HTMLDivElement>(null)
   const howRef = useRef<HTMLDivElement>(null)
   const howTrackRef = useRef<HTMLDivElement>(null)
   const vaultRef = useRef<HTMLDivElement>(null)
-  const vaultTrackRef = useRef<HTMLDivElement>(null)
   const invisibleRef = useRef<HTMLDivElement>(null)
   const realPeopleRef = useRef<HTMLDivElement>(null)
   const alwaysOnRef = useRef<HTMLDivElement>(null)
@@ -129,9 +127,9 @@ export default function Landing() {
   const betaRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
-    const handleScroll = () => setScrollY(window.scrollY)
-    window.addEventListener('scroll', handleScroll)
-    return () => window.removeEventListener('scroll', handleScroll)
+    // const handleScroll = () => setScrollY(window.scrollY)
+    // window.addEventListener('scroll', handleScroll)
+    // return () => window.removeEventListener('scroll', handleScroll)
   }, [])
 
   // GSAP Animations

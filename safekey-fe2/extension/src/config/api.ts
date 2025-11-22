@@ -16,11 +16,11 @@
  * Common configurations:
  */
 
-// Development (default)
+// Development
 export const DEV_API_URL = 'http://localhost:3001'
 
-// Production example
-export const PROD_API_URL = 'https://your-production-api.com'
+// Production
+export const PROD_API_URL = 'https://safekeyapp-production.up.railway.app'
 
 // Staging example  
 export const STAGING_API_URL = 'https://staging-api.yourapp.com'
@@ -28,6 +28,6 @@ export const STAGING_API_URL = 'https://staging-api.yourapp.com'
 // Alternative local port
 export const ALT_LOCAL_API_URL = 'http://localhost:3000'
 
-// Default for reference
-export const API_BASE_URL = DEV_API_URL
+// Default - Change this to PROD_API_URL for production
+export const API_BASE_URL = PROD_API_URL
 export const API_BASE_URL_WITH_API = `${API_BASE_URL}/api`

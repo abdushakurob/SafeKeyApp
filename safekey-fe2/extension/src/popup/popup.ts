@@ -2,7 +2,7 @@ import { sendHeartbeat } from '../shared/heartbeat'
 
 // === API CONFIGURATION ===
 // To change the API URL, update this line and rebuild:
-const API_BASE_URL = 'http://localhost:3001'
+const API_BASE_URL = 'https://safekeyapp-production.up.railway.app'
 
 function getElement(id: string): HTMLElement | null {
   return document.getElementById(id)
@@ -52,18 +52,18 @@ async function checkSession() {
         }
       })
     })
-    
+
     if (response && response.success && response.session) {
       // Show connected state
       if (statusCard) statusCard.style.display = 'block'
       if (emptyState) emptyState.style.display = 'none'
       if (actions) actions.style.display = 'flex'
-      
+
       if (statusValue) {
         statusValue.textContent = 'Connected'
         statusValue.className = 'status-value'
       }
-      
+
       if (address && response.session.address) {
         const addr = response.session.address
         address.textContent = `${addr.substring(0, 6)}...${addr.substring(addr.length - 4)}`
@@ -74,12 +74,12 @@ async function checkSession() {
       if (statusCard) statusCard.style.display = 'block'
       if (emptyState) emptyState.style.display = 'none'
       if (actions) actions.style.display = 'flex'
-      
+
       if (statusValue) {
         statusValue.textContent = 'Not Connected'
         statusValue.className = 'status-value disconnected'
       }
-      
+
       if (addressContainer) addressContainer.style.display = 'none'
     }
   } catch (error) {
@@ -88,12 +88,12 @@ async function checkSession() {
     if (statusCard) statusCard.style.display = 'block'
     if (emptyState) emptyState.style.display = 'none'
     if (actions) actions.style.display = 'flex'
-    
+
     if (statusValue) {
       statusValue.textContent = 'Error checking session'
       statusValue.className = 'status-value disconnected'
     }
-    
+
     if (addressContainer) addressContainer.style.display = 'none'
   }
 }

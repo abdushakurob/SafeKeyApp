@@ -4,7 +4,7 @@
 
 // === API CONFIGURATION ===
 // To change the API URL, update this line and rebuild:
-const API_BASE_URL = 'http://localhost:3001'
+const API_BASE_URL = 'https://safekeyapp-production.up.railway.app'
 
 /**
  * Send heartbeat to API server to announce extension is installed
@@ -17,7 +17,7 @@ export async function sendHeartbeat(): Promise<void> {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ extensionId }),
     })
-    
+
     if (response.ok) {
       console.log('[Extension] Heartbeat sent successfully')
     } else {

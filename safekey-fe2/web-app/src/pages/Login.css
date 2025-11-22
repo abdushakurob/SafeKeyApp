@@ -38,14 +38,26 @@
 }
 
 .login-logo {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 1rem;
     font-size: 2.5rem;
     font-weight: 700;
     letter-spacing: -0.03em;
     margin-bottom: 0.5rem;
+}
+
+.login-logo span {
     background: linear-gradient(to right, #fff, #888);
     background-clip: text;
     -webkit-background-clip: text;
     -webkit-text-fill-color: transparent;
+}
+
+.login-logo-image {
+    height: 48px;
+    width: auto;
 }
 
 .login-sub {

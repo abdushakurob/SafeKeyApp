@@ -1,6 +1,6 @@
 // === API CONFIGURATION ===
 // To change the API URL, update this line and rebuild:
-const API_BASE_URL = 'http://localhost:3001'
+const API_BASE_URL = 'https://safekeyapp-production.up.railway.app'
 
 /**
  * Send heartbeat to API server to announce extension is installed
@@ -13,7 +13,7 @@ async function sendHeartbeat(): Promise<void> {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ extensionId })
     })
-    
+
     if (response.ok) {
       console.log('[Heartbeat] Ping sent successfully')
     } else {
@@ -94,11 +94,11 @@ chrome.runtime.onMessage.addListener((request, _sender, sendResponse) => {
   // Forward to web app (if open) or queue it
   if (request.type === 'BLOCKCHAIN_REQUEST') {
     console.log('[Background] Blockchain request received:', request.request)
-    
+
     // Try to find web app tab
     chrome.tabs.query({ url: 'http://localhost:3000/*' }, async (tabs) => {
       let webAppTab = tabs[0]
-      
+
       // If web app is not open, don't open it automatically (user can open manually)
       if (!webAppTab) {
         console.log('[Background] Web app not open. User needs to open it manually.')
@@ -108,7 +108,7 @@ chrome.runtime.onMessage.addListener((request, _sender, sendResponse) => {
         })
         return
       }
-      
+
       // Inject content script if needed and send message
       try {
         // Try to send message (content script should be injected)
@@ -116,7 +116,7 @@ chrome.runtime.onMessage.addListener((request, _sender, sendResponse) => {
           type: 'BLOCKCHAIN_REQUEST',
           request: request.request,
         })
-        
+
         // Forward response back to content script
         sendResponse(response)
       } catch (error) {
@@ -147,7 +147,7 @@ chrome.runtime.onMessage.addListener((request, _sender, sendResponse) => {
         }
       }
     })
-    
+
     return true // Keep channel open for async response
   }
 

@@ -5,6 +5,7 @@ import { useNavigate } from 'react-router-dom'
 import { syncSessionToExtension, isExtensionInstalled } from '../lib/extension'
 import { storeSession } from '../lib/zklogin'
 import type { AuthProvider } from '../lib/zklogin'
+import logoLight from '../assets/logo_light.png'
 import './Login.css'
 
 export default function Login() {
@@ -115,7 +116,10 @@ export default function Login() {
       <div className="login-content">
         {/* Header */}
         <div className="login-header">
-          <div className="login-logo">SafeKey</div>
+          <div className="login-logo">
+            <img src={logoLight} alt="SafeKey" className="login-logo-image" />
+            <span>SafeKey</span>
+          </div>
           <div className="login-sub">/// SIGN IN TO CONTINUE</div>
         </div>
 

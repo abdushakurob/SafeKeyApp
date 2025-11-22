@@ -11,6 +11,8 @@ import { masterKeyManager } from '../lib/master-key-manager'
 import { sessionManager } from '../lib/session-manager'
 import { persistenceManager } from '../lib/persistence-manager'
 import './Dashboard.css'
+import logoLight from '../assets/logo_light.png'
+import userIcon from '../assets/user icon.png'
 
 // --- Icons ---
 const Icons = {
@@ -637,7 +639,8 @@ export default function Dashboard() {
       {/* Sidebar */}
       <div className={`dash-sidebar ${sidebarExpanded ? 'expanded' : ''}`}>
         <div className="dash-logo-container" onClick={() => setSidebarExpanded(!sidebarExpanded)}>
-          <span className="dash-logo-text">SK</span>
+          <img src={logoLight} alt="SafeKey" className="dash-logo-image" />
+          <span className="dash-logo-text">SafeKey</span>
         </div>
 
         <div className="dash-nav">
@@ -651,7 +654,7 @@ export default function Dashboard() {
 
         <div className="dash-user-container">
           <div className="dash-user-bottom" onClick={() => setShowUserMenu(!showUserMenu)} title="User Profile">
-            <div className="user-circle"></div>
+            <img src={userIcon} alt="User" className="user-circle" />
             <span className="user-label">
               {currentAccount.address.slice(0, 6)}...
             </span>
@@ -679,8 +682,12 @@ export default function Dashboard() {
       <div className="dash-main">
         {/* Header */}
         <div className="dash-header">
+          <div className="mobile-logo">
+            <img src={logoLight} alt="SafeKey" height="32" />
+            <span className="mobile-logo-text">SafeKey</span>
+          </div>
           <div className="dash-title">
-            <h1>Safekey Dashboard</h1>
+            <h2>Dashboard</h2>
             <div className={`extension-status ${extensionSynced ? 'connected' : ''}`}>
               <div className="status-dot"></div>
               {extensionSynced ? 'Extension Connected' : 'Extension Not Detected'}

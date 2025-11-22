@@ -40,11 +40,26 @@
     transition: 0.3s;
 }
 
+.dash-logo-image {
+    height: 28px;
+    width: auto;
+}
+
 .dash-logo-text {
     font-family: 'JetBrains Mono', monospace;
     font-weight: 800;
     font-size: 1.5rem;
     letter-spacing: -1px;
+    display: none;
+    white-space: nowrap;
+    opacity: 0;
+    transition: opacity 0.3s;
+    margin-left: 12px;
+}
+
+.dash-sidebar.expanded .dash-logo-text {
+    display: block;
+    opacity: 1;
 }
 
 .dash-logo-container:hover {
@@ -179,20 +194,6 @@
     border: 1px solid rgba(204, 255, 0, 0.2);
     border-radius: 12px;
     padding: 1rem;
-    box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5);
-    z-index: 1000;
-    animation: fadeIn 0.2s ease-out;
-}
-
-.dash-sidebar.expanded .user-menu-popup {
-    left: 20px;
-    bottom: 70px;
-}
-
-.user-menu-label {
-    font-size: 0.75rem;
-    color: #666;
-    margin-bottom: 4px;
 }
 
 .user-menu-address {
@@ -245,6 +246,11 @@
     background: rgba(15, 15, 15, 0.6);
     backdrop-filter: blur(20px);
     z-index: 5;
+}
+
+.mobile-logo {
+    display: none;
+    /* Hidden on desktop */
 }
 
 .dash-title h1 {
@@ -763,5 +769,214 @@
     to {
         transform: translateY(0);
         opacity: 1;
+    }
+}
+
+/* Mobile Responsiveness */
+@media (max-width: 768px) {
+    .dashboard-container {
+        flex-direction: row;
+        /* Keep row for sidebar */
+    }
+
+    .dash-sidebar {
+        width: 60px;
+        height: 100vh;
+        position: fixed;
+        top: 0;
+        left: 0;
+        bottom: 0;
+        border-right: 1px solid rgba(255, 255, 255, 0.05);
+        border-top: none;
+        flex-direction: column;
+        justify-content: flex-start;
+        padding: 1rem 0;
+        background: rgba(5, 5, 5, 0.98);
+        z-index: 1000;
+    }
+
+    .dash-sidebar.expanded {
+        width: 60px;
+        /* Keep collapsed on mobile */
+        align-items: center;
+    }
+
+    /* Hide logo in sidebar on mobile if we have it in top bar */
+    .dash-logo-container {
+        display: none;
+    }
+
+    .dash-nav {
+        flex-direction: column;
+        width: 100%;
+        gap: 1.5rem;
+        margin-top: 1rem;
+    }
+
+    .dash-nav-item {
+        width: 40px;
+        height: 40px;
+    }
+
+    .dash-sidebar.expanded .dash-nav-item {
+        width: 40px;
+        padding-left: 0;
+        margin-left: 0;
+        justify-content: center;
+    }
+
+    .nav-label {
+        display: none !important;
+    }
+
+    .dash-user-container {
+        width: auto;
+        margin-top: 0;
+    }
+
+    .dash-sidebar.expanded .dash-user-container {
+        padding-left: 0;
+    }
+
+    .dash-user-bottom {
+        padding: 5px;
+    }
+
+    .dash-sidebar.expanded .dash-user-bottom {
+        width: auto;
+        padding-left: 5px;
+    }
+
+    .user-label {
+        display: none !important;
+    }
+
+    /* Main Content on Mobile */
+    .dash-main {
+        margin-left: 60px;
+        /* Space for sidebar */
+        margin-bottom: 0;
+        width: calc(100% - 60px);
+    }
+
+    .dash-header {
+        padding: 0.8rem 1rem;
+        height: auto;
+        min-height: 70px;
+        display: grid;
+        grid-template-columns: 1fr auto;
+        grid-template-areas:
+            "logo actions"
+            "status actions";
+        gap: 4px;
+        align-items: center;
+    }
+
+    .mobile-logo {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        grid-area: logo;
+    }
+
+    .mobile-logo-img {
+        height: 24px;
+        width: auto;
+    }
+
+    .mobile-logo-text {
+        font-size: 1.1rem;
+        font-weight: 700;
+    }
+
+    .dash-title {
+        grid-area: status;
+        margin: 0;
+    }
+
+    .dash-title h1 {
+        display: none;
+    }
+
+    .extension-status {
+        margin-top: 0;
+        font-size: 0.75rem;
+    }
+
+    .dash-actions {
+        grid-area: actions;
+        gap: 0.5rem;
+    }
+
+    .dash-search-bar {
+        width: 40px;
+        /* Collapse search bar on mobile? Or just icon */
+        padding: 0;
+        justify-content: center;
+        background: transparent;
+        border: none;
+    }
+
+    .dash-search-input {
+        display: none;
+        /* Hide input, show only icon */
+    }
+
+    .dash-search-bar:focus-within {
+        /* Expand on click if needed, but for now keep simple */
+        width: 40px;
+        background: transparent;
+        box-shadow: none;
+        border: none;
+    }
+
+    /* If user wants full search, we might need a different approach. 
+       "things got jampacked" -> simplifying search helps. */
+
+    .dash-add-btn span {
+        display: none;
+    }
+
+    .dash-add-btn {
+        padding: 0;
+        width: 36px;
+        height: 36px;
+        border-radius: 50%;
+    }
+
+    .dash-content {
+        padding: 1rem;
+    }
+
+    .dash-row {
+        padding: 1rem;
+        gap: 1rem;
+    }
+
+    .dash-row-icon {
+        width: 40px;
+        height: 40px;
+        font-size: 1rem;
+    }
+
+    .dash-row-title {
+        font-size: 1rem;
+    }
+
+    .dash-row-sub {
+        font-size: 0.8rem;
+    }
+
+    .user-menu-popup {
+        bottom: 20px;
+        left: 70px;
+        transform: none;
+        width: 240px;
+        max-width: none;
+    }
+
+    .dash-sidebar.expanded .user-menu-popup {
+        left: 70px;
+        bottom: 20px;
     }
 }

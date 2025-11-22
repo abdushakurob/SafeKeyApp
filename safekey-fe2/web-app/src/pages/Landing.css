@@ -90,20 +90,18 @@ h3,
     gap: 0.75rem;
 }
 
-.logo-icon {
-    width: 24px;
-    height: 24px;
-    background: var(--accent);
-    border-radius: 6px;
-    box-shadow: 0 0 10px rgba(204, 255, 0, 0.4);
+.logo-image {
+    height: 32px;
+    width: auto;
 }
 
 .logo-text {
     font-family: 'Plus Jakarta Sans', sans-serif;
     font-weight: 700;
-    font-size: 1.2rem;
+    font-size: 1.25rem;
     color: #fff;
     letter-spacing: -0.02em;
+    margin-left: 10px;
 }
 
 .nav-center-links {

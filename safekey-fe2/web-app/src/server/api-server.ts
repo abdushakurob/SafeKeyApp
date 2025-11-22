@@ -28,7 +28,7 @@ function getEnokiClient(): EnokiClient {
       'Get your private API key from https://enoki.mystenlabs.com/developer'
     )
   }
-  
+
   return new EnokiClient({
     apiKey,
   })
@@ -52,6 +52,12 @@ const allowedOrigins = allowedOriginsEnv
 
 app.use(cors({
   origin: (origin, callback) => {
+    // TEMPORARY: Allow all origins in production to fix extension connectivity
+    // This allows the extension to query the backend directly from any context (including github.com)
+    return callback(null, true)
+
+    /* 
+    // Original strict CORS logic - restored later
     // In development, allow all origins (needed for extension content scripts)
     if (isDevelopment) {
       return callback(null, true)
@@ -89,6 +95,7 @@ app.use(cors({
     console.warn('[CORS] Rejecting origin:', origin)
     console.warn('[CORS] Allowed origins:', allowedOrigins.length > 0 ? allowedOrigins.join(', ') : 'none configured')
     callback(new Error(`Not allowed by CORS: ${origin}`))
+    */
   },
   credentials: true,
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
@@ -179,7 +186,7 @@ app.get('/api/get-credential', async (req, res) => {
 
     console.log('[API] Getting credential for domain:', domain, 'address:', session.address)
     console.log('[API] Master key length:', masterKey?.length || 0)
-    
+
     // Get credentials (array)
     let credentials
     try {
@@ -355,11 +362,11 @@ app.post('/api/clear-session', (_req, res) => {
 app.get('/api/all-credentials', async (_req, res) => {
   try {
     console.log('[API] /api/all-credentials called')
-    
+
     // Check session
     const hasSession = hasValidSession()
     console.log('[API] Has valid session:', hasSession)
-    
+
     if (!hasSession) {
       console.log('[API] No valid session, returning 401')
       return res.status(401).json({ success: false, error: 'No valid session' })
@@ -367,7 +374,7 @@ app.get('/api/all-credentials', async (_req, res) => {
 
     const session = getSession()
     console.log('[API] Session retrieved:', session ? { address: session.address, hasMasterKey: !!session.masterKey } : 'null')
-    
+
     if (!session) {
       console.log('[API] Session is null, returning 401')
       return res.status(401).json({ success: false, error: 'Session not found' })
@@ -384,10 +391,10 @@ app.get('/api/all-credentials', async (_req, res) => {
 
     // Get all domains from vault
     const { getUserVaultId, getAllDomainHashes } = await import('../lib/vault')
-    
+
     console.log('[API] Looking up vault for address:', session.address)
     const vaultId = await getUserVaultId(session.address)
-    
+
     if (!vaultId) {
       console.log('[API] No vault found for address after retries:', session.address)
       console.log('[API] This might mean the vault has not been created yet, or there was an indexing delay')
@@ -395,12 +402,12 @@ app.get('/api/all-credentials', async (_req, res) => {
     }
 
     console.log('[API] Found vault:', vaultId)
-    
+
     // Get all domain hashes from vault
     const domainHashes = await getAllDomainHashes(vaultId)
-    
+
     console.log('[API] Found', domainHashes.length, 'domain hashes in vault')
-    
+
     if (domainHashes.length === 0) {
       console.log('[API] No domain hashes found, returning empty credentials')
       return res.json({ success: true, credentials: [] })
@@ -410,32 +417,32 @@ app.get('/api/all-credentials', async (_req, res) => {
     // 1. Get the credential info (which includes the domain hash)
     // 2. Try to reverse-lookup the domain by hashing known domains
     // Since we can't reverse the hash, we'll return domain hashes and let the client decrypt
-    
+
     // Actually, we need to get credential info to decrypt and get the domain
     // But we don't have the domain to hash... This is a problem.
     // For now, let's return the domain hashes and let the client try to match them
     // OR: We can store domain in the encrypted data itself
-    
+
     // Use the smart credentials library which handles both Walrus (new format) and on-chain (old format)
     const credentials = []
-    
+
     console.log(`[API] Processing ${domainHashes.length} domain hashes...`)
-    
+
     // Import the credential retrieval function
     const { getCredentialByDomainHash } = await import('../lib/credentials')
-    
+
     for (const domainHash of domainHashes) {
       try {
         // Convert domainHash (Uint8Array) to base64 for the library function
         const domainHashB64 = btoa(String.fromCharCode(...domainHash))
-        
+
         console.log(`[API] Retrieving credential for hash: ${domainHashB64.substring(0, 16)}...`)
-        
+
         // This function intelligently handles:
         // - New format: data is JSON array of Walrus blob IDs, fetches and decrypts from Walrus
         // - Old format: data is encrypted bytes on-chain, decrypts directly
         const creds = await getCredentialByDomainHash(domainHashB64, KM, session.address)
-        
+
         if (creds && creds.length > 0) {
           credentials.push(...creds.map(cred => ({
             domain: cred.domain,
@@ -455,7 +462,7 @@ app.get('/api/all-credentials', async (_req, res) => {
         // Skip this credential but continue with others
       }
     }
-    
+
     console.log(`[API] ✅ Successfully processed ${credentials.length} credentials out of ${domainHashes.length} domain hashes`)
 
     res.json({ success: true, credentials })
@@ -466,9 +473,9 @@ app.get('/api/all-credentials', async (_req, res) => {
       stack: error instanceof Error ? error.stack : undefined,
       name: error instanceof Error ? error.name : undefined,
     })
-    res.status(500).json({ 
-      success: false, 
-      error: error instanceof Error ? error.message : String(error) 
+    res.status(500).json({
+      success: false,
+      error: error instanceof Error ? error.message : String(error)
     })
   }
 })
@@ -523,7 +530,7 @@ app.get('/api/all-domains', async (_req, res) => {
     // Get vault ID
     const { getUserVaultId } = await import('../lib/vault')
     const vaultId = await getUserVaultId(session.address)
-    
+
     if (!vaultId) {
       return res.json({ success: true, domains: [] })
     }
@@ -568,16 +575,16 @@ app.post('/api/extension-ping', (req, res) => {
     // Use extensionId if provided, otherwise use a default identifier
     const id = extensionId || 'default'
     const now = Date.now()
-    
+
     extensionHeartbeats.set(id, now)
-    
+
     // Clean up old heartbeats (older than timeout)
     for (const [key, timestamp] of extensionHeartbeats.entries()) {
       if (now - timestamp > EXTENSION_HEARTBEAT_TIMEOUT * 2) {
         extensionHeartbeats.delete(key)
       }
     }
-    
+
     res.json({ success: true })
   } catch (error) {
     console.error('[API] Error processing extension ping:', error)
@@ -595,7 +602,7 @@ app.get('/api/extension-status', (_req, res) => {
     const now = Date.now()
     let installed = false
     let lastPing: number | undefined
-    
+
     // Check if any extension has pinged recently
     for (const [, timestamp] of extensionHeartbeats.entries()) {
       const age = now - timestamp
@@ -607,8 +614,8 @@ app.get('/api/extension-status', (_req, res) => {
         }
       }
     }
-    
-    res.json({ 
+
+    res.json({
       installed,
       lastPing: lastPing || null,
     })
@@ -630,8 +637,8 @@ app.post('/api/sponsor', async (req, res) => {
     const { transactionKindBytes, sender } = req.body
 
     if (!transactionKindBytes || !sender) {
-      return res.status(400).json({ 
-        error: 'transactionKindBytes and sender are required' 
+      return res.status(400).json({
+        error: 'transactionKindBytes and sender are required'
       })
     }
 
@@ -640,7 +647,7 @@ app.post('/api/sponsor', async (req, res) => {
     // Use Enoki client to create sponsored transaction
     // This handles all the complexity of adding gas, signing, etc.
     const network = (process.env.VITE_SUI_NETWORK || 'testnet') as 'mainnet' | 'testnet' | 'devnet'
-    
+
     const sponsored = await enokiClient.createSponsoredTransaction({
       network,
       transactionKindBytes,
@@ -674,8 +681,8 @@ app.post('/api/execute', async (req, res) => {
     const { digest, signature } = req.body
 
     if (!digest || !signature) {
-      return res.status(400).json({ 
-        error: 'digest and signature are required' 
+      return res.status(400).json({
+        error: 'digest and signature are required'
       })
     }
 

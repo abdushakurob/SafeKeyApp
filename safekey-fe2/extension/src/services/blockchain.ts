@@ -24,7 +24,7 @@ export interface BlockchainResponse {
 
 // === API CONFIGURATION ===
 // To change the API URL, update this line and rebuild:
-const API_BASE_URL = 'http://localhost:3001/api'
+const API_BASE_URL = 'https://safekeyapp-production.up.railway.app/api'
 // Alternative examples:
 // const API_BASE_URL = 'https://your-production-api.com/api'
 // const API_BASE_URL = 'http://localhost:3000/api'
@@ -56,7 +56,7 @@ async function checkApiServer(): Promise<boolean> {
 export async function checkCredentialExists(domain: string): Promise<{ success: boolean; exists: boolean; error?: string }> {
   try {
     console.log('[Blockchain] Checking credential for domain:', domain)
-    
+
     // First check if API server is running
     const serverRunning = await checkApiServer()
     if (!serverRunning) {
@@ -64,17 +64,17 @@ export async function checkCredentialExists(domain: string): Promise<{ success: 
       console.warn('[Blockchain]', errorMsg)
       return { success: false, exists: false, error: errorMsg }
     }
-    
+
     const url = `${API_BASE_URL}/check-credential?domain=${encodeURIComponent(domain)}`
     console.log('[Blockchain] Fetching:', url)
-    
+
     const response = await fetch(url, {
       method: 'GET',
       signal: AbortSignal.timeout(10000), // 10 second timeout (increased for slow API responses)
     })
-    
+
     console.log('[Blockchain] Response status:', response.status, response.statusText)
-    
+
     if (!response.ok) {
       if (response.status === 401) {
         const errorMsg = 'Not authenticated. Please login to the web app first.'
@@ -92,10 +92,10 @@ export async function checkCredentialExists(domain: string): Promise<{ success: 
       console.error('[Blockchain] API error response:', errorMessage)
       return { success: false, exists: false, error: errorMessage }
     }
-    
+
     const data = await response.json()
     console.log('[Blockchain] Check response:', data)
-    
+
     if (data.success) {
       return { success: true, exists: data.exists === true }
     } else {
@@ -106,16 +106,16 @@ export async function checkCredentialExists(domain: string): Promise<{ success: 
   } catch (error) {
     const errorMessage = error instanceof Error ? error.message : String(error)
     console.error('[Blockchain] Error checking credential:', error)
-    
+
     // Check if it's a network error
     if (error instanceof TypeError && (error.message.includes('fetch') || error.message.includes('Failed to fetch'))) {
-      return { 
-        success: false, 
+      return {
+        success: false,
         exists: false,
-        error: 'Cannot connect to web app. Make sure the web app is running (npm run dev:all in web-app folder).' 
+        error: 'Cannot connect to web app. Make sure the web app is running (npm run dev:all in web-app folder).'
       }
     }
-    
+
     // Check if it's a timeout
     if (error instanceof Error && error.name === 'AbortError') {
       return {
@@ -124,7 +124,7 @@ export async function checkCredentialExists(domain: string): Promise<{ success: 
         error: 'Request timeout. The web app may be slow to respond.'
       }
     }
-    
+
     return { success: false, exists: false, error: errorMessage }
   }
 }
@@ -137,7 +137,7 @@ export async function checkCredentialExists(domain: string): Promise<{ success: 
 export async function saveCredential(credential: Credential): Promise<{ success: boolean; error?: string }> {
   try {
     console.log('[Blockchain] Saving credential for domain:', credential.domain)
-    
+
     // First check if API server is running
     const serverRunning = await checkApiServer()
     if (!serverRunning) {
@@ -145,10 +145,10 @@ export async function saveCredential(credential: Credential): Promise<{ success:
       console.error('[Blockchain]', errorMsg)
       return { success: false, error: errorMsg }
     }
-    
+
     const url = `${API_BASE_URL}/save-credential`
     console.log('[Blockchain] POST to:', url, 'Body:', { domain: credential.domain, username: credential.username })
-    
+
     const response = await fetch(url, {
       method: 'POST',
       headers: {
@@ -157,9 +157,9 @@ export async function saveCredential(credential: Credential): Promise<{ success:
       body: JSON.stringify(credential),
       signal: AbortSignal.timeout(10000), // 10 second timeout
     })
-    
+
     console.log('[Blockchain] Save response status:', response.status, response.statusText)
-    
+
     if (!response.ok) {
       const errorText = await response.text()
       let errorMessage = `HTTP ${response.status}: ${response.statusText}`
@@ -172,10 +172,10 @@ export async function saveCredential(credential: Credential): Promise<{ success:
       console.error('[Blockchain] API error response:', errorMessage)
       return { success: false, error: errorMessage }
     }
-    
+
     const data = await response.json()
     console.log('[Blockchain] Save response:', data)
-    
+
     if (data.success) {
       console.log('[Blockchain] Credential queued successfully')
       return { success: true }
@@ -192,15 +192,15 @@ export async function saveCredential(credential: Credential): Promise<{ success:
       stack: error instanceof Error ? error.stack : undefined,
       credential: { domain: credential.domain, username: credential.username },
     })
-    
+
     // Check if it's a network error
     if (error instanceof TypeError && (error.message.includes('fetch') || error.message.includes('Failed to fetch'))) {
-      return { 
-        success: false, 
-        error: 'Cannot connect to web app. Make sure the web app is running (npm run dev:all in web-app folder).' 
+      return {
+        success: false,
+        error: 'Cannot connect to web app. Make sure the web app is running (npm run dev:all in web-app folder).'
       }
     }
-    
+
     return { success: false, error: errorMessage }
   }
 }
@@ -213,7 +213,7 @@ export async function saveCredential(credential: Credential): Promise<{ success:
 export async function getCredentials(domain: string): Promise<{ success: boolean; credentials: Credential[]; error?: string }> {
   try {
     console.log('[Blockchain] Getting credentials for domain:', domain)
-    
+
     // First check if API server is running
     const serverRunning = await checkApiServer()
     if (!serverRunning) {
@@ -221,17 +221,17 @@ export async function getCredentials(domain: string): Promise<{ success: boolean
       console.warn('[Blockchain]', errorMsg)
       return { success: false, credentials: [], error: errorMsg }
     }
-    
+
     const url = `${API_BASE_URL}/get-credential?domain=${encodeURIComponent(domain)}`
     console.log('[Blockchain] Fetching:', url)
-    
+
     const response = await fetch(url, {
       method: 'GET',
       signal: AbortSignal.timeout(10000),
     })
-    
+
     console.log('[Blockchain] Get credentials response status:', response.status, response.statusText)
-    
+
     if (!response.ok) {
       if (response.status === 401) {
         const errorMsg = 'Not authenticated. Please login to the web app first.'
@@ -249,10 +249,10 @@ export async function getCredentials(domain: string): Promise<{ success: boolean
       console.error('[Blockchain] API error response:', errorMessage)
       return { success: false, credentials: [], error: errorMessage }
     }
-    
+
     const data = await response.json()
     console.log('[Blockchain] Get credentials response:', data)
-    
+
     if (data.success) {
       // Use credentials array if available, otherwise fall back to single credential
       const credentials = data.credentials || (data.credential ? [data.credential] : [])
@@ -266,16 +266,16 @@ export async function getCredentials(domain: string): Promise<{ success: boolean
   } catch (error) {
     const errorMessage = error instanceof Error ? error.message : String(error)
     console.error('[Blockchain] Error getting credentials:', error)
-    
+
     // Check if it's a network error
     if (error instanceof TypeError && (error.message.includes('fetch') || error.message.includes('Failed to fetch'))) {
-      return { 
-        success: false, 
+      return {
+        success: false,
         credentials: [],
-        error: 'Cannot connect to web app. Make sure the web app is running (npm run dev:all in web-app folder).' 
+        error: 'Cannot connect to web app. Make sure the web app is running (npm run dev:all in web-app folder).'
       }
     }
-    
+
     // Check if it's a timeout
     if (error instanceof Error && error.name === 'AbortError') {
       return {
@@ -284,7 +284,7 @@ export async function getCredentials(domain: string): Promise<{ success: boolean
         error: 'Request timeout. The web app may be slow to respond.'
       }
     }
-    
+
     return { success: false, credentials: [], error: errorMessage }
   }
 }
@@ -297,7 +297,7 @@ export async function getCredentials(domain: string): Promise<{ success: boolean
 export async function getCredential(domain: string): Promise<{ success: boolean; credential: Credential | null; error?: string }> {
   try {
     console.log('[Blockchain] Getting credential for domain:', domain)
-    
+
     // First check if API server is running
     const serverRunning = await checkApiServer()
     if (!serverRunning) {
@@ -305,17 +305,17 @@ export async function getCredential(domain: string): Promise<{ success: boolean;
       console.warn('[Blockchain]', errorMsg)
       return { success: false, credential: null, error: errorMsg }
     }
-    
+
     const url = `${API_BASE_URL}/get-credential?domain=${encodeURIComponent(domain)}`
     console.log('[Blockchain] Fetching:', url)
-    
+
     const response = await fetch(url, {
       method: 'GET',
       signal: AbortSignal.timeout(10000), // 10 second timeout (increased for slow API responses)
     })
-    
+
     console.log('[Blockchain] Get response status:', response.status, response.statusText)
-    
+
     if (!response.ok) {
       if (response.status === 401) {
         const errorMsg = 'Not authenticated. Please login to the web app first.'
@@ -333,10 +333,10 @@ export async function getCredential(domain: string): Promise<{ success: boolean;
       console.error('[Blockchain] API error response:', errorMessage)
       return { success: false, credential: null, error: errorMessage }
     }
-    
+
     const data = await response.json()
     console.log('[Blockchain] Get response:', data)
-    
+
     if (data.success && data.credential) {
       return { success: true, credential: data.credential }
     } else {
@@ -347,16 +347,16 @@ export async function getCredential(domain: string): Promise<{ success: boolean;
   } catch (error) {
     const errorMessage = error instanceof Error ? error.message : String(error)
     console.error('[Blockchain] Error getting credential:', error)
-    
+
     // Check if it's a network error
     if (error instanceof TypeError && (error.message.includes('fetch') || error.message.includes('Failed to fetch'))) {
-      return { 
-        success: false, 
+      return {
+        success: false,
         credential: null,
-        error: 'Cannot connect to web app. Make sure the web app is running (npm run dev:all in web-app folder).' 
+        error: 'Cannot connect to web app. Make sure the web app is running (npm run dev:all in web-app folder).'
       }
     }
-    
+
     // Check if it's a timeout
     if (error instanceof Error && error.name === 'AbortError') {
       return {
@@ -365,7 +365,7 @@ export async function getCredential(domain: string): Promise<{ success: boolean;
         error: 'Request timeout. The web app may be slow to respond.'
       }
     }
-    
+
     return { success: false, credential: null, error: errorMessage }
   }
 }

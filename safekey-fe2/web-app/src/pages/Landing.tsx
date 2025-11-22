@@ -4,6 +4,7 @@ import gsap from 'gsap'
 import { ScrollTrigger } from 'gsap/ScrollTrigger'
 import * as THREE from 'three'
 import './Landing.css'
+import logoLight from '../assets/logo_light.png'
 
 gsap.registerPlugin(ScrollTrigger)
 
@@ -280,8 +281,8 @@ export default function Landing() {
       <div className="nav-wrapper">
         <nav className="nav-floating">
           <div className="logo-container">
-            <div className="logo-icon"></div>
-            <div className="logo-text">SafeKey</div>
+            <img src={logoLight} alt="SafeKey" className="logo-image" />
+            <span className="logo-text">SafeKey</span>
           </div>
 
           <div className="nav-center-links">

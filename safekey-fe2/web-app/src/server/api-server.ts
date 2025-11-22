@@ -51,7 +51,7 @@ const allowedOrigins = allowedOriginsEnv
   .filter(origin => origin.length > 0)
 
 app.use(cors({
-  origin: (origin, callback) => {
+  origin: (_origin, callback) => {
     // TEMPORARY: Allow all origins in production to fix extension connectivity
     // This allows the extension to query the backend directly from any context (including github.com)
     return callback(null, true)
